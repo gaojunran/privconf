@@ -1,0 +1,71 @@
+use anyhow::{Context, bail};
+
+pub fn run() -> anyhow::Result<()> {
+    crate::config::ensure_initialized()?;
+
+    let cwd = std::env::current_dir()?;
+    let git_root = crate::config::git_root(&cwd).ok();
+    let state = crate::config::load_state()?;
+
+    let entries: Vec<_> = state
+        .linked
+        .iter()
+        .filter(|e| e.target.starts_with(&cwd))
+        .cloned()
+        .collect();
+
+    if entries.is_empty() {
+        bail!("no linked files found in current directory");
+    }
+
+    let mut state = state;
+    let mut unlinked = 0usize;
+    let mut not_linked = 0usize;
+
+    for entry in &entries {
+        let target = &entry.target;
+        if !target.is_symlink() {
+            eprintln!("  skip {}: not a symlink", entry.file);
+            not_linked += 1;
+            continue;
+        }
+
+        std::fs::remove_file(target)
+            .with_context(|| format!("removing symlink {}", target.display()))?;
+
+        let backup = target.with_extension("privconf.bak");
+        if backup.exists() {
+            std::fs::rename(&backup, target)?;
+            eprintln!("  restored {} from backup", entry.file);
+        } else if let Some(ref git_root) = git_root {
+            let rel_path = std::path::PathBuf::from(&entry.file);
+            if entry.skip_worktree {
+                let _ = std::process::Command::new("git")
+                    .args(["checkout", "HEAD", "--"])
+                    .arg(&rel_path)
+                    .current_dir(git_root)
+                    .status();
+                eprintln!("  restored {} from git", entry.file);
+            }
+        }
+
+        if let Some(ref git_root) = git_root {
+            let rel_path = std::path::PathBuf::from(&entry.file);
+            if entry.skip_worktree {
+                crate::config::git_unset_skip_worktree(git_root, &rel_path).ok();
+            } else {
+                crate::config::git_remove_from_exclude(git_root, &rel_path).ok();
+            }
+            let backup_rel = rel_path.with_extension("privconf.bak");
+            crate::config::git_remove_from_exclude(git_root, &backup_rel).ok();
+        }
+
+        state.linked.retain(|e| !(e.project == entry.project && e.file == entry.file));
+        eprintln!("  unlinked {}", entry.file);
+        unlinked += 1;
+    }
+
+    crate::config::save_state(&state)?;
+    eprintln!("unlinked {unlinked} file(s), {not_linked} not symlinks");
+    Ok(())
+}
