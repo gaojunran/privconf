@@ -39,6 +39,8 @@ impl TestEnv {
         let repo = self.root.path().join("repos").join(name);
         fs::create_dir_all(&repo).unwrap();
         self.git(&["init"], &repo).assert_success();
+        self.git(&["config", "user.name", "test"], &repo).assert_success();
+        self.git(&["config", "user.email", "test@test.com"], &repo).assert_success();
         if let Some(url) = remote {
             self.git(&["remote", "add", "origin", url], &repo).assert_success();
         }
