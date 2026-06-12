@@ -4,7 +4,8 @@ pub fn run(shell: &str) -> anyhow::Result<()> {
     let script = match shell {
         "bash" => BASH_HOOK,
         "zsh" => ZSH_HOOK,
-        _ => return Err(anyhow!("unsupported shell: {shell}. Supported: bash, zsh")),
+        "fish" => FISH_HOOK,
+        _ => return Err(anyhow!("unsupported shell: {shell}. Supported: bash, zsh, fish")),
     };
     println!("{script}");
     Ok(())
@@ -32,4 +33,10 @@ __privconf_chpwd_hook() {
     privconf link --quiet 2>/dev/null || true
 }
 chpwd_functions=(__privconf_chpwd_hook "${chpwd_functions[@]}")
+"#;
+
+const FISH_HOOK: &str = r#"
+function __privconf_chpwd_hook --on-variable PWD
+    privconf link --quiet 2>/dev/null; or true
+end
 "#;

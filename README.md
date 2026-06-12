@@ -48,6 +48,9 @@ eval "$(privconf hook bash)"
 
 # Zsh — add to ~/.zshrc
 eval "$(privconf hook zsh)"
+
+# Fish — add to ~/.config/fish/conf.d/privconf.fish
+privconf hook fish > ~/.config/fish/conf.d/privconf.fish
 ```
 
 ## Commands
@@ -60,7 +63,7 @@ eval "$(privconf hook zsh)"
 | `unlink` | Remove symlinks and restore original files |
 | `status` | Show link status for current directory |
 | `sync` | Pull, commit, and push the store repo |
-| `hook <bash\|zsh>` | Print shell hook script |
+| `hook <bash\|zsh\|fish>` | Print shell hook script |
 
 ## Configuration
 

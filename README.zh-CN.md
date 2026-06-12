@@ -48,6 +48,9 @@ eval "$(privconf hook bash)"
 
 # Zsh — 添加到 ~/.zshrc
 eval "$(privconf hook zsh)"
+
+# Fish — 添加到 ~/.config/fish/conf.d/privconf.fish
+privconf hook fish > ~/.config/fish/conf.d/privconf.fish
 ```
 
 ## 命令
@@ -60,7 +63,7 @@ eval "$(privconf hook zsh)"
 | `unlink` | 移除符号链接并恢复原始文件 |
 | `status` | 显示当前目录的链接状态 |
 | `sync` | 拉取、提交并推送仓库 |
-| `hook <bash\|zsh>` | 输出 shell hook 脚本 |
+| `hook <bash\|zsh\|fish>` | 输出 shell hook 脚本 |
 
 ## 配置
 

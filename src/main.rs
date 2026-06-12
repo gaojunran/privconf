@@ -35,7 +35,7 @@ enum Commands {
     Sync,
     /// Print shell hook for auto-link on cd
     Hook {
-        /// Shell type: bash or zsh
+        /// Shell type: bash, zsh, or fish
         shell: String,
     },
 }

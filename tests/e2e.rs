@@ -426,11 +426,23 @@ fn test_hook_bash() {
 }
 
 #[test]
+fn test_hook_fish() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let output = env.privconf(&["hook", "fish"]).assert_success();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("__privconf_chpwd_hook"));
+    assert!(stdout.contains("on-variable PWD"));
+    assert!(stdout.contains("privconf link --quiet"));
+}
+
+#[test]
 fn test_hook_unsupported_shell() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();
 
-    env.privconf(&["hook", "fish"]).assert_failure();
+    env.privconf(&["hook", "powershell"]).assert_failure();
 }
 
 #[test]
