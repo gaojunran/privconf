@@ -28,6 +28,7 @@ pub fn run(quiet: bool) -> anyhow::Result<()> {
         }
 
         let target = cwd.join(file);
+        let is_dir = source.is_dir();
 
         if target.exists() {
             if target.is_symlink() {
@@ -37,18 +38,23 @@ pub fn run(quiet: bool) -> anyhow::Result<()> {
                     }
                 }
             }
-            if target.is_file() || target.is_symlink() {
-                let backup = target.with_extension("privconf.bak");
+            let backup = backup_path(&target);
+            if target.is_dir() && !target.is_symlink() {
+                std::fs::rename(&target, &backup)
+                    .with_context(|| format!("backing up directory {}", target.display()))?;
+                if !quiet {
+                    eprintln!("  backed up {} -> {}", target.display(), backup.display());
+                }
+            } else if target.is_file() || target.is_symlink() {
                 std::fs::rename(&target, &backup)
                     .with_context(|| format!("backing up {}", target.display()))?;
                 if !quiet {
                     eprintln!("  backed up {} -> {}", target.display(), backup.display());
                 }
-                if let Some(ref root) = git_root {
-                    let file_path = std::path::PathBuf::from(file);
-                    let backup_rel = file_path.with_extension("privconf.bak");
-                    crate::config::git_add_to_exclude(root, &backup_rel).ok();
-                }
+            }
+            if let Some(ref root) = git_root {
+                let backup_rel = backup_path(&std::path::PathBuf::from(file));
+                crate::config::git_add_to_exclude(root, &backup_rel).ok();
             }
         }
 
@@ -58,6 +64,24 @@ pub fn run(quiet: bool) -> anyhow::Result<()> {
 
         std::os::unix::fs::symlink(&source, &target)
             .with_context(|| format!("linking {} -> {}", target.display(), source.display()))?;
+
+        if is_dir {
+            if let Some(ref root) = git_root {
+                crate::config::git_add_to_exclude(root, &std::path::PathBuf::from(file)).ok();
+            }
+            state.linked.retain(|e| !(e.project == project.name && e.file == *file));
+            state.linked.push(crate::config::LinkedEntry {
+                project: project.name.clone(),
+                file: file.clone(),
+                target: target.clone(),
+                skip_worktree: false,
+            });
+            if !quiet {
+                eprintln!("  linked {file} (directory, excluded)");
+            }
+            linked_count += 1;
+            continue;
+        }
 
         let rel_path = std::path::PathBuf::from(file);
         let tracked = git_root.as_ref().is_some_and(|root| crate::config::git_is_tracked(root, &rel_path));
@@ -89,4 +113,19 @@ pub fn run(quiet: bool) -> anyhow::Result<()> {
         eprintln!("linked {linked_count} file(s), skipped {skipped_count}");
     }
     Ok(())
+}
+
+fn backup_path(path: &std::path::Path) -> std::path::PathBuf {
+    if path.extension().is_some() {
+        path.with_extension("privconf.bak")
+    } else {
+        let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let parent = path.parent();
+        let mut new_name = file_name;
+        new_name.push_str(".privconf.bak");
+        match parent {
+            Some(p) => p.join(new_name),
+            None => std::path::PathBuf::from(new_name),
+        }
+    }
 }

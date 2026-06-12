@@ -559,3 +559,121 @@ fn test_commands_without_init() {
     env.privconf(&["status"]).assert_failure();
     env.privconf(&["sync"]).assert_failure();
 }
+
+#[test]
+fn test_add_directory() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("scripts")).unwrap();
+    fs::write(repo.join("scripts/deploy.sh"), "#!/bin/sh\necho deploy").unwrap();
+    fs::write(repo.join("scripts/build.sh"), "#!/bin/sh\necho build").unwrap();
+
+    env.privconf(&["add", "myproj", "scripts"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let stored_dir = env.project_dir("myproj").join("scripts");
+    assert!(stored_dir.is_dir());
+    assert!(stored_dir.join("deploy.sh").exists());
+    assert!(stored_dir.join("build.sh").exists());
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let files = config.get("project").unwrap().as_array().unwrap()[0].get("files").unwrap().as_array().unwrap();
+    assert!(files.iter().any(|f| f.as_str() == Some("scripts")));
+}
+
+#[test]
+fn test_link_directory() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("scripts")).unwrap();
+    fs::write(repo.join("scripts/deploy.sh"), "#!/bin/sh\necho deploy").unwrap();
+
+    env.privconf(&["add", "myproj", "scripts"])
+        .current_dir(&repo)
+        .assert_success();
+
+    fs::remove_dir_all(repo.join("scripts")).unwrap();
+
+    env.privconf(&["link"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let linked = repo.join("scripts");
+    assert!(linked.is_symlink());
+    assert!(linked.read_link().unwrap().starts_with(env.store_dir()));
+    assert!(linked.join("deploy.sh").exists());
+
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(exclude.contains("scripts"));
+}
+
+#[test]
+fn test_link_directory_backs_up_existing() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("scripts")).unwrap();
+    fs::write(repo.join("scripts/deploy.sh"), "original").unwrap();
+
+    env.privconf(&["add", "myproj", "scripts"])
+        .current_dir(&repo)
+        .assert_success();
+
+    fs::write(repo.join("scripts/deploy.sh"), "modified").unwrap();
+
+    env.privconf(&["link"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(repo.join("scripts.privconf.bak").is_dir());
+    assert_eq!(fs::read_to_string(repo.join("scripts.privconf.bak/deploy.sh")).unwrap(), "modified");
+}
+
+#[test]
+fn test_unlink_directory_restores_from_backup() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("scripts")).unwrap();
+    fs::write(repo.join("scripts/deploy.sh"), "original").unwrap();
+
+    env.privconf(&["add", "myproj", "scripts"])
+        .current_dir(&repo)
+        .assert_success();
+
+    fs::write(repo.join("scripts/deploy.sh"), "modified").unwrap();
+
+    env.privconf(&["link"]).current_dir(&repo).assert_success();
+    env.privconf(&["unlink"]).current_dir(&repo).assert_success();
+
+    assert!(repo.join("scripts").is_dir());
+    assert!(!repo.join("scripts").is_symlink());
+    assert_eq!(fs::read_to_string(repo.join("scripts/deploy.sh")).unwrap(), "modified");
+    assert!(!repo.join("scripts.privconf.bak").exists());
+}
+
+#[test]
+fn test_add_nested_directory() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("scripts/ci")).unwrap();
+    fs::write(repo.join("scripts/deploy.sh"), "#!/bin/sh\necho deploy").unwrap();
+    fs::write(repo.join("scripts/ci/test.sh"), "#!/bin/sh\necho test").unwrap();
+
+    env.privconf(&["add", "myproj", "scripts"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let stored = env.project_dir("myproj").join("scripts");
+    assert!(stored.join("deploy.sh").exists());
+    assert!(stored.join("ci/test.sh").exists());
+}

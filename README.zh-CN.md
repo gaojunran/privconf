@@ -31,6 +31,9 @@ privconf init
 cd ~/Projects/myproj
 privconf add myproj mise.local.toml .env.local
 
+# 添加整个目录
+privconf add myproj scripts/
+
 # 链接文件（创建符号链接）
 privconf link
 
@@ -64,7 +67,7 @@ privconf hook fish > ~/.config/fish/conf.d/privconf.fish
 | 命令 | 说明 |
 |------|------|
 | `init` | 初始化 privconf 仓库至 `~/.privconf/` |
-| `add <name> <files...>` | 从当前项目添加文件到仓库 |
+| `add <name> <files...>` | 从当前项目添加文件或目录到仓库 |
 | `link [--quiet]` | 创建符号链接并从 git 隐藏 |
 | `unlink` | 移除符号链接并恢复原始文件 |
 | `status` | 显示当前目录的链接状态 |
@@ -109,10 +112,10 @@ skip_worktree = false
 
 ## 已有同名文件的处理
 
-`privconf link` 遇到项目目录中已存在的同名文件时：
+`privconf link` 遇到项目目录中已存在的同名文件或目录时：
 
-1. **已是正确的符号链接**（指向同一 store 文件）— 跳过，不做任何操作。
-2. **普通文件或指向其他位置的符号链接** — 重命名为 `<name>.privconf.bak`，然后创建符号链接。备份文件会加入 `.git/info/exclude`，不会出现在 `git status` 中。
+1. **已是正确的符号链接**（指向同一 store 路径）— 跳过，不做任何操作。
+2. **普通文件或目录** — 重命名为 `<name>.privconf.bak`，然后创建符号链接。备份文件会加入 `.git/info/exclude`，不会出现在 `git status` 中。
 
 `privconf unlink` 反向操作时：
 

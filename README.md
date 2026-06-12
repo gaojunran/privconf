@@ -31,6 +31,9 @@ privconf init
 cd ~/Projects/myproj
 privconf add myproj mise.local.toml .env.local
 
+# Add an entire directory
+privconf add myproj scripts/
+
 # Link files (creates symlinks)
 privconf link
 
@@ -64,7 +67,7 @@ privconf hook fish > ~/.config/fish/conf.d/privconf.fish
 | Command | Description |
 |---------|-------------|
 | `init` | Initialize privconf store at `~/.privconf/` |
-| `add <name> <files...>` | Add files from current project to store |
+| `add <name> <files...>` | Add files or directories from current project to store |
 | `link [--quiet]` | Create symlinks and hide from git |
 | `unlink` | Remove symlinks and restore original files |
 | `status` | Show link status for current directory |
@@ -109,10 +112,10 @@ skip_worktree = false
 
 ## How Existing Files Are Handled
 
-When `privconf link` encounters a file that already exists in the project directory:
+When `privconf link` encounters a file or directory that already exists in the project directory:
 
-1. **Already a correct symlink** (points to the same store file) — skipped, no action.
-2. **Regular file or different symlink** — renamed to `<name>.privconf.bak`, then symlink created. The backup is added to `.git/info/exclude` so it stays out of `git status`.
+1. **Already a correct symlink** (points to the same store path) — skipped, no action.
+2. **Regular file or directory** — renamed to `<name>.privconf.bak`, then symlink created. The backup is added to `.git/info/exclude` so it stays out of `git status`.
 
 When `privconf unlink` reverses the operation:
 
