@@ -12,6 +12,12 @@
 ## 安装
 
 ```bash
+mise use -g github:gaojunran/privconf
+```
+
+或从源码构建：
+
+```bash
 cargo install --git https://github.com/gaojunran/privconf
 ```
 
@@ -101,13 +107,24 @@ target = "/home/user/Projects/myproj/mise.local.toml"
 skip_worktree = false
 ```
 
+## 已有同名文件的处理
+
+`privconf link` 遇到项目目录中已存在的同名文件时：
+
+1. **已是正确的符号链接**（指向同一 store 文件）— 跳过，不做任何操作。
+2. **普通文件或指向其他位置的符号链接** — 重命名为 `<name>.privconf.bak`，然后创建符号链接。备份文件会加入 `.git/info/exclude`，不会出现在 `git status` 中。
+
+`privconf unlink` 反向操作时：
+
+1. **备份存在** — 从备份恢复（保留你的本地修改）。
+2. **无备份，但文件曾被 git 跟踪** — 通过 `git checkout HEAD -- <file>` 恢复。
+3. **无备份，未被 git 跟踪** — 文件被移除（store 中仍保留 `privconf add` 时复制的内容）。
+
 ## 文件隐藏机制
 
 - **未跟踪文件**（不在 git 中）：加入 `.git/info/exclude`
 - **已跟踪文件**（已提交到 git）：`git update-index --skip-worktree`
 - **备份文件**（`*.privconf.bak`）：同样加入 `.git/info/exclude`
-
-`unlink` 时，原始文件从备份恢复，或通过 `git checkout HEAD` 恢复。
 
 ## 许可证
 

@@ -12,6 +12,12 @@ Private config manager for project-specific files. Sync `mise.local.toml`, `.env
 ## Install
 
 ```bash
+mise use -g github:gaojunran/privconf
+```
+
+Or build from source:
+
+```bash
 cargo install --git https://github.com/gaojunran/privconf
 ```
 
@@ -101,13 +107,24 @@ target = "/home/user/Projects/myproj/mise.local.toml"
 skip_worktree = false
 ```
 
-## How Files Are Hidden
+## How Existing Files Are Handled
+
+When `privconf link` encounters a file that already exists in the project directory:
+
+1. **Already a correct symlink** (points to the same store file) — skipped, no action.
+2. **Regular file or different symlink** — renamed to `<name>.privconf.bak`, then symlink created. The backup is added to `.git/info/exclude` so it stays out of `git status`.
+
+When `privconf unlink` reverses the operation:
+
+1. **Backup exists** — restored from backup (your local changes preserved).
+2. **No backup, but file was tracked by git** — restored via `git checkout HEAD -- <file>`.
+3. **No backup, untracked** — file is simply removed (the symlink target in the store still has the content from when you ran `privconf add`).
+
+## How Files Are Hidden from Git
 
 - **Untracked files** (not in git): added to `.git/info/exclude`
 - **Tracked files** (committed to git): `git update-index --skip-worktree`
 - **Backup files** (`*.privconf.bak`): also added to `.git/info/exclude`
-
-On `unlink`, original files are restored from backup or `git checkout HEAD`.
 
 ## License
 
