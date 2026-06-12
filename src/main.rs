@@ -14,11 +14,20 @@ struct Cli {
 enum Commands {
     /// Initialize privconf store
     Init,
-    /// Add files from current project to privconf
+    /// Add files from current project to privconf and create symlinks
     Add {
-        /// Project name
-        name: String,
-        /// Files to add
+        /// Project name (auto-detected from git remote if omitted)
+        #[arg(long, short)]
+        project: Option<String>,
+        /// Files or directories to add (omit to create project only)
+        files: Vec<String>,
+    },
+    /// Remove files from privconf and restore originals
+    Remove {
+        /// Project name (auto-detected from git remote if omitted)
+        #[arg(long, short)]
+        project: Option<String>,
+        /// Files or directories to remove
         files: Vec<String>,
     },
     /// Link private config files into current project directory
@@ -26,6 +35,9 @@ enum Commands {
         /// Suppress output
         #[arg(long, short)]
         quiet: bool,
+        /// Sync store with remote before linking
+        #[arg(long, short)]
+        sync: bool,
     },
     /// Unlink private config files from current project directory
     Unlink,
@@ -45,8 +57,9 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Init => cmd::init::run(),
-        Commands::Add { name, files } => cmd::add::run(name, files),
-        Commands::Link { quiet } => cmd::link::run(quiet),
+        Commands::Add { project, files } => cmd::add::run(project, files),
+        Commands::Remove { project, files } => cmd::remove::run(project, files),
+        Commands::Link { quiet, sync } => cmd::link::run(quiet, sync),
         Commands::Unlink => cmd::unlink::run(),
         Commands::Status => cmd::status::run(),
         Commands::Sync => cmd::sync::run(),

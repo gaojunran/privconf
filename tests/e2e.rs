@@ -92,14 +92,14 @@ fn test_init_idempotent() {
 }
 
 #[test]
-fn test_add_creates_project() {
+fn test_add_auto_detects_project() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();
 
     let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
     fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
 
-    env.privconf(&["add", "myproj", "mise.local.toml"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
 
@@ -112,6 +112,25 @@ fn test_add_creates_project() {
     let stored = env.project_dir("myproj").join("mise.local.toml");
     assert!(stored.exists());
     assert_eq!(fs::read_to_string(stored).unwrap(), "node = '22'");
+
+    assert!(repo.join("mise.local.toml").is_symlink());
+}
+
+#[test]
+fn test_add_with_explicit_project_name() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+
+    env.privconf(&["add", "-p", "custom-name", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let project = &config.get("project").unwrap().as_array().unwrap()[0];
+    assert_eq!(project.get("name").unwrap().as_str(), Some("custom-name"));
 }
 
 #[test]
@@ -123,10 +142,10 @@ fn test_add_appends_to_existing_project() {
     fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
     fs::write(repo.join(".env.local"), "FOO=bar").unwrap();
 
-    env.privconf(&["add", "myproj", "mise.local.toml"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
-    env.privconf(&["add", "myproj", ".env.local"])
+    env.privconf(&["add", ".env.local"])
         .current_dir(&repo)
         .assert_success();
 
@@ -137,20 +156,20 @@ fn test_add_appends_to_existing_project() {
 }
 
 #[test]
-fn test_add_no_remote() {
+fn test_add_no_remote_requires_project_flag() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();
 
     let repo = env.create_git_repo("myproj", None);
     fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
 
-    env.privconf(&["add", "myproj", "mise.local.toml"])
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_failure();
+
+    env.privconf(&["add", "-p", "myproj", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
-
-    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
-    let project = &config.get("project").unwrap().as_array().unwrap()[0];
-    assert!(project.get("match_remote").is_none() || project.get("match_remote").unwrap().as_str().is_none());
 }
 
 #[test]
@@ -158,8 +177,8 @@ fn test_add_nonexistent_file_warns() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();
 
-    let repo = env.create_git_repo("myproj", None);
-    let output = env.privconf(&["add", "myproj", "nonexistent.toml"])
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    let output = env.privconf(&["add", "nonexistent.toml"])
         .current_dir(&repo)
         .assert_success();
 
@@ -168,20 +187,14 @@ fn test_add_nonexistent_file_warns() {
 }
 
 #[test]
-fn test_link_untracked_file() {
+fn test_add_creates_symlink_immediately() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();
 
     let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
     fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
 
-    env.privconf(&["add", "myproj", "mise.local.toml"])
-        .current_dir(&repo)
-        .assert_success();
-
-    fs::remove_file(repo.join("mise.local.toml")).unwrap();
-
-    env.privconf(&["link"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
 
@@ -197,7 +210,7 @@ fn test_link_untracked_file() {
 }
 
 #[test]
-fn test_link_tracked_file_skip_worktree() {
+fn test_add_tracked_file_skip_worktree() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();
 
@@ -206,11 +219,7 @@ fn test_link_tracked_file_skip_worktree() {
     env.git(&["add", "config.override.toml"], &repo).assert_success();
     env.git(&["commit", "-m", "add tracked config"], &repo).assert_success();
 
-    env.privconf(&["add", "myproj", "config.override.toml"])
-        .current_dir(&repo)
-        .assert_success();
-
-    env.privconf(&["link"])
+    env.privconf(&["add", "config.override.toml"])
         .current_dir(&repo)
         .assert_success();
 
@@ -222,25 +231,20 @@ fn test_link_tracked_file_skip_worktree() {
 }
 
 #[test]
-fn test_link_backs_up_existing_file() {
+fn test_add_removes_original_file() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();
 
     let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
     fs::write(repo.join("mise.local.toml"), "original").unwrap();
 
-    env.privconf(&["add", "myproj", "mise.local.toml"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
 
-    fs::write(repo.join("mise.local.toml"), "modified").unwrap();
-
-    env.privconf(&["link"])
-        .current_dir(&repo)
-        .assert_success();
-
-    assert!(repo.join("mise.local.privconf.bak").exists());
-    assert_eq!(fs::read_to_string(repo.join("mise.local.privconf.bak")).unwrap(), "modified");
+    assert!(repo.join("mise.local.toml").is_symlink());
+    assert!(!repo.join("mise.local.privconf.bak").exists());
+    assert_eq!(fs::read_to_string(repo.join("mise.local.toml")).unwrap(), "original");
 }
 
 #[test]
@@ -251,13 +255,10 @@ fn test_link_idempotent() {
     let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
     fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
 
-    env.privconf(&["add", "myproj", "mise.local.toml"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
 
-    fs::remove_file(repo.join("mise.local.toml")).unwrap();
-
-    env.privconf(&["link"]).current_dir(&repo).assert_success();
     env.privconf(&["link"]).current_dir(&repo).assert_success();
 
     let linked = repo.join("mise.local.toml");
@@ -281,11 +282,9 @@ fn test_link_quiet_mode() {
     let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
     fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
 
-    env.privconf(&["add", "myproj", "mise.local.toml"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
-
-    fs::remove_file(repo.join("mise.local.toml")).unwrap();
 
     let output = env.privconf(&["link", "--quiet"])
         .current_dir(&repo)
@@ -295,19 +294,17 @@ fn test_link_quiet_mode() {
 }
 
 #[test]
-fn test_unlink_restores_untracked() {
+fn test_unlink_untracked_no_backup() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();
 
     let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
     fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
 
-    env.privconf(&["add", "myproj", "mise.local.toml"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
 
-    fs::remove_file(repo.join("mise.local.toml")).unwrap();
-    env.privconf(&["link"]).current_dir(&repo).assert_success();
     env.privconf(&["unlink"]).current_dir(&repo).assert_success();
 
     assert!(!repo.join("mise.local.toml").exists());
@@ -325,11 +322,10 @@ fn test_unlink_restores_tracked_from_git() {
     env.git(&["add", "config.override.toml"], &repo).assert_success();
     env.git(&["commit", "-m", "add config"], &repo).assert_success();
 
-    env.privconf(&["add", "myproj", "config.override.toml"])
+    env.privconf(&["add", "config.override.toml"])
         .current_dir(&repo)
         .assert_success();
 
-    env.privconf(&["link"]).current_dir(&repo).assert_success();
     env.privconf(&["unlink"]).current_dir(&repo).assert_success();
 
     assert!(repo.join("config.override.toml").exists());
@@ -347,13 +343,12 @@ fn test_unlink_restores_from_backup() {
     let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
     fs::write(repo.join("mise.local.toml"), "original").unwrap();
 
-    env.privconf(&["add", "myproj", "mise.local.toml"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
 
-    fs::write(repo.join("mise.local.toml"), "modified").unwrap();
+    fs::write(repo.join("mise.local.privconf.bak"), "modified").unwrap();
 
-    env.privconf(&["link"]).current_dir(&repo).assert_success();
     env.privconf(&["unlink"]).current_dir(&repo).assert_success();
 
     assert!(repo.join("mise.local.toml").exists());
@@ -371,6 +366,113 @@ fn test_unlink_no_linked_files() {
 }
 
 #[test]
+fn test_remove_file() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(repo.join("mise.local.toml").is_symlink());
+
+    env.privconf(&["remove", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(!repo.join("mise.local.toml").is_symlink());
+    assert!(!env.project_dir("myproj").join("mise.local.toml").exists());
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let projects = config.get("project").unwrap().as_array().unwrap();
+    assert!(projects.is_empty());
+}
+
+#[test]
+fn test_remove_with_backup_restore() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "original").unwrap();
+
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+
+    env.privconf(&["unlink"]).current_dir(&repo).assert_success();
+
+    fs::write(repo.join("mise.local.toml"), "modified").unwrap();
+
+    env.privconf(&["link"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(repo.join("mise.local.privconf.bak").exists());
+
+    env.privconf(&["remove", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(repo.join("mise.local.toml").exists());
+    assert_eq!(fs::read_to_string(repo.join("mise.local.toml")).unwrap(), "modified");
+    assert!(!repo.join("mise.local.privconf.bak").exists());
+}
+
+#[test]
+fn test_remove_directory() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("scripts")).unwrap();
+    fs::write(repo.join("scripts/deploy.sh"), "#!/bin/sh\necho deploy").unwrap();
+
+    env.privconf(&["add", "scripts"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(repo.join("scripts").is_symlink());
+
+    env.privconf(&["remove", "scripts"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(!repo.join("scripts").is_symlink());
+    assert!(!env.project_dir("myproj").join("scripts").exists());
+}
+
+#[test]
+fn test_remove_partial_project() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+    fs::write(repo.join(".env.local"), "FOO=bar").unwrap();
+
+    env.privconf(&["add", "mise.local.toml", ".env.local"])
+        .current_dir(&repo)
+        .assert_success();
+
+    env.privconf(&["remove", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(!repo.join("mise.local.toml").is_symlink());
+    assert!(repo.join(".env.local").is_symlink());
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let project = &config.get("project").unwrap().as_array().unwrap()[0];
+    let files = project.get("files").unwrap().as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].as_str(), Some(".env.local"));
+}
+
+#[test]
 fn test_status_shows_project() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();
@@ -378,7 +480,7 @@ fn test_status_shows_project() {
     let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
     fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
 
-    env.privconf(&["add", "myproj", "mise.local.toml"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
 
@@ -462,14 +564,9 @@ fn test_full_workflow() {
     env.git(&["add", "scripts/deploy.sh"], &repo).assert_success();
     env.git(&["commit", "-m", "add deploy script"], &repo).assert_success();
 
-    env.privconf(&["add", "myproj", "mise.local.toml", "scripts/deploy.sh", ".env.local"])
+    env.privconf(&["add", "mise.local.toml", "scripts/deploy.sh", ".env.local"])
         .current_dir(&repo)
         .assert_success();
-
-    fs::remove_file(repo.join("mise.local.toml")).unwrap();
-    fs::remove_file(repo.join(".env.local")).unwrap();
-
-    env.privconf(&["link"]).current_dir(&repo).assert_success();
 
     assert!(repo.join("mise.local.toml").is_symlink());
     assert!(repo.join("scripts/deploy.sh").is_symlink());
@@ -499,7 +596,7 @@ fn test_match_by_remote() {
 
     let repo1 = env.create_git_repo("proj1", Some("git@github.com:myco/proj1.git"));
     fs::write(repo1.join("mise.local.toml"), "node = '22'").unwrap();
-    env.privconf(&["add", "proj1", "mise.local.toml"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo1)
         .assert_success();
 
@@ -516,13 +613,9 @@ fn test_link_subdirectory_file() {
     fs::create_dir_all(repo.join("scripts")).unwrap();
     fs::write(repo.join("scripts/deploy.sh"), "#!/bin/sh\necho deploy").unwrap();
 
-    env.privconf(&["add", "myproj", "scripts/deploy.sh"])
+    env.privconf(&["add", "scripts/deploy.sh"])
         .current_dir(&repo)
         .assert_success();
-
-    fs::remove_dir_all(repo.join("scripts")).unwrap();
-
-    env.privconf(&["link"]).current_dir(&repo).assert_success();
 
     let linked = repo.join("scripts/deploy.sh");
     assert!(linked.is_symlink());
@@ -536,7 +629,7 @@ fn test_link_source_missing_in_store() {
     let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
     fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
 
-    env.privconf(&["add", "myproj", "mise.local.toml"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
 
@@ -554,7 +647,7 @@ fn test_link_source_missing_in_store() {
 fn test_commands_without_init() {
     let env = TestEnv::new();
     env.privconf(&["link"]).assert_failure();
-    env.privconf(&["add", "test", "file"]).assert_failure();
+    env.privconf(&["add", "file"]).assert_failure();
     env.privconf(&["unlink"]).assert_failure();
     env.privconf(&["status"]).assert_failure();
     env.privconf(&["sync"]).assert_failure();
@@ -570,7 +663,7 @@ fn test_add_directory() {
     fs::write(repo.join("scripts/deploy.sh"), "#!/bin/sh\necho deploy").unwrap();
     fs::write(repo.join("scripts/build.sh"), "#!/bin/sh\necho build").unwrap();
 
-    env.privconf(&["add", "myproj", "scripts"])
+    env.privconf(&["add", "scripts"])
         .current_dir(&repo)
         .assert_success();
 
@@ -582,6 +675,8 @@ fn test_add_directory() {
     let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
     let files = config.get("project").unwrap().as_array().unwrap()[0].get("files").unwrap().as_array().unwrap();
     assert!(files.iter().any(|f| f.as_str() == Some("scripts")));
+
+    assert!(repo.join("scripts").is_symlink());
 }
 
 #[test]
@@ -593,13 +688,7 @@ fn test_link_directory() {
     fs::create_dir_all(repo.join("scripts")).unwrap();
     fs::write(repo.join("scripts/deploy.sh"), "#!/bin/sh\necho deploy").unwrap();
 
-    env.privconf(&["add", "myproj", "scripts"])
-        .current_dir(&repo)
-        .assert_success();
-
-    fs::remove_dir_all(repo.join("scripts")).unwrap();
-
-    env.privconf(&["link"])
+    env.privconf(&["add", "scripts"])
         .current_dir(&repo)
         .assert_success();
 
@@ -621,10 +710,13 @@ fn test_link_directory_backs_up_existing() {
     fs::create_dir_all(repo.join("scripts")).unwrap();
     fs::write(repo.join("scripts/deploy.sh"), "original").unwrap();
 
-    env.privconf(&["add", "myproj", "scripts"])
+    env.privconf(&["add", "scripts"])
         .current_dir(&repo)
         .assert_success();
 
+    env.privconf(&["unlink"]).current_dir(&repo).assert_success();
+
+    fs::create_dir_all(repo.join("scripts")).unwrap();
     fs::write(repo.join("scripts/deploy.sh"), "modified").unwrap();
 
     env.privconf(&["link"])
@@ -644,13 +736,19 @@ fn test_unlink_directory_restores_from_backup() {
     fs::create_dir_all(repo.join("scripts")).unwrap();
     fs::write(repo.join("scripts/deploy.sh"), "original").unwrap();
 
-    env.privconf(&["add", "myproj", "scripts"])
+    env.privconf(&["add", "scripts"])
         .current_dir(&repo)
         .assert_success();
 
+    env.privconf(&["unlink"]).current_dir(&repo).assert_success();
+
+    fs::create_dir_all(repo.join("scripts")).unwrap();
     fs::write(repo.join("scripts/deploy.sh"), "modified").unwrap();
 
-    env.privconf(&["link"]).current_dir(&repo).assert_success();
+    env.privconf(&["link"])
+        .current_dir(&repo)
+        .assert_success();
+
     env.privconf(&["unlink"]).current_dir(&repo).assert_success();
 
     assert!(repo.join("scripts").is_dir());
@@ -669,11 +767,89 @@ fn test_add_nested_directory() {
     fs::write(repo.join("scripts/deploy.sh"), "#!/bin/sh\necho deploy").unwrap();
     fs::write(repo.join("scripts/ci/test.sh"), "#!/bin/sh\necho test").unwrap();
 
-    env.privconf(&["add", "myproj", "scripts"])
+    env.privconf(&["add", "scripts"])
         .current_dir(&repo)
         .assert_success();
 
     let stored = env.project_dir("myproj").join("scripts");
     assert!(stored.join("deploy.sh").exists());
     assert!(stored.join("ci/test.sh").exists());
+}
+
+#[test]
+fn test_remove_with_explicit_project() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+
+    env.privconf(&["add", "-p", "custom", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+
+    env.privconf(&["remove", "-p", "custom", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(!repo.join("mise.local.toml").is_symlink());
+    assert!(!env.project_dir("custom").exists());
+}
+
+#[test]
+fn test_add_multiple_files_at_once() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+    fs::write(repo.join(".env.local"), "FOO=bar").unwrap();
+
+    env.privconf(&["add", "mise.local.toml", ".env.local"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(repo.join("mise.local.toml").is_symlink());
+    assert!(repo.join(".env.local").is_symlink());
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let files = config.get("project").unwrap().as_array().unwrap()[0].get("files").unwrap().as_array().unwrap();
+    assert_eq!(files.len(), 2);
+}
+
+#[test]
+fn test_add_without_files_creates_project() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+
+    env.privconf(&["add"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let projects = config.get("project").unwrap().as_array().unwrap();
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].get("name").unwrap().as_str(), Some("myproj"));
+    assert_eq!(projects[0].get("match_remote").unwrap().as_str(), Some("git@github.com:myco/myproj.git"));
+    assert!(projects[0].get("files").unwrap().as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_link_prefers_remote_match_over_path() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let projects = config.get("project").unwrap().as_array().unwrap();
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].get("match_remote").unwrap().as_str(), Some("git@github.com:myco/myproj.git"));
 }

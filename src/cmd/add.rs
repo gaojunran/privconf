@@ -1,27 +1,28 @@
 use anyhow::Context;
 
-pub fn run(name: String, files: Vec<String>) -> anyhow::Result<()> {
+pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<()> {
     crate::config::ensure_initialized()?;
 
     let cwd = std::env::current_dir()?;
     let git_root = crate::config::git_root(&cwd).ok();
 
-    let mut config = crate::config::load_config()?;
+    let name = match project_name {
+        Some(n) => n,
+        None => {
+            let root = git_root.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("not in a git repo. Use -p <name> to specify project name"))?;
+            crate::config::derive_project_name(root)
+                .ok_or_else(|| anyhow::anyhow!("no git remote found. Use -p <name> to specify project name"))?
+        }
+    };
 
     let match_remote = git_root.as_ref().and_then(|root| {
-        let output = std::process::Command::new("git")
-            .args(["remote", "get-url", "origin"])
-            .current_dir(root)
-            .output()
-            .ok()?;
-        if output.status.success() {
-            Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
-        } else {
-            None
-        }
+        crate::config::get_git_remote_from_root(root)
     });
 
     let expanded = expand_paths(&cwd, &files)?;
+
+    let mut config = crate::config::load_config()?;
 
     if let Some(existing) = config.project.iter_mut().find(|p| p.name == name) {
         for file in &expanded {
@@ -32,7 +33,11 @@ pub fn run(name: String, files: Vec<String>) -> anyhow::Result<()> {
         if existing.match_remote.is_none() && match_remote.is_some() {
             existing.match_remote = match_remote.clone();
         }
-        eprintln!("added files to existing project '{}'", name);
+        if expanded.is_empty() {
+            eprintln!("project '{name}' already exists");
+        } else {
+            eprintln!("added files to existing project '{name}'");
+        }
     } else {
         let project_dir = crate::config::project_dir(&name);
         std::fs::create_dir_all(&project_dir)?;
@@ -43,7 +48,7 @@ pub fn run(name: String, files: Vec<String>) -> anyhow::Result<()> {
             match_path: None,
             files: expanded.clone(),
         });
-        eprintln!("created project '{}'", name);
+        eprintln!("created project '{name}'");
     }
 
     let project_dir = crate::config::project_dir(&name);
@@ -68,7 +73,19 @@ pub fn run(name: String, files: Vec<String>) -> anyhow::Result<()> {
     }
 
     crate::config::save_config(&config)?;
-    eprintln!("run `privconf link` to create symlinks");
+
+    let mut state = crate::config::load_state()?;
+    let mut linked_count = 0usize;
+    for file in &expanded {
+        if crate::config::link_file(&name, file, &cwd, git_root.as_deref(), &mut state, false, false)? {
+            linked_count += 1;
+        }
+    }
+    crate::config::save_state(&state)?;
+
+    if linked_count > 0 {
+        eprintln!("linked {linked_count} file(s)");
+    }
     Ok(())
 }
 
@@ -76,7 +93,7 @@ fn expand_paths(cwd: &std::path::Path, files: &[String]) -> anyhow::Result<Vec<S
     let mut result = Vec::new();
     for file in files {
         let path = cwd.join(file);
-        if path.is_dir() {
+        if !path.exists() {
             result.push(file.clone());
         } else {
             result.push(file.clone());
