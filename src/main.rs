@@ -13,7 +13,10 @@ struct Cli {
 #[derive(clap::Subcommand)]
 enum Commands {
     /// Initialize privconf store
-    Init,
+    Init {
+        /// Remote URL to clone (if omitted, creates a new store)
+        remote: Option<String>,
+    },
     /// Add files from current project to privconf and create symlinks
     Add {
         /// Project name (auto-detected from git remote if omitted)
@@ -45,6 +48,8 @@ enum Commands {
     Status,
     /// Sync privconf store with remote
     Sync,
+    /// List all projects in the store
+    List,
     /// Print shell hook for auto-link on cd
     Hook {
         /// Shell type: bash, zsh, or fish
@@ -64,13 +69,14 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init => cmd::init::run(),
+        Commands::Init { remote } => cmd::init::run(remote.as_deref()),
         Commands::Add { project, files } => cmd::add::run(project, files),
         Commands::Remove { project, files } => cmd::remove::run(project, files),
         Commands::Link { quiet, sync } => cmd::link::run(quiet, sync),
         Commands::Unlink => cmd::unlink::run(),
         Commands::Status => cmd::status::run(),
         Commands::Sync => cmd::sync::run(),
+        Commands::List => cmd::list::run(),
         Commands::Hook { shell } => cmd::hook::run(&shell),
         Commands::Ignore { project, files } => cmd::ignore::run(project, files),
     }

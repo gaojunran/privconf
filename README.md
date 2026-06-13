@@ -15,12 +15,15 @@ privconf remove mise.local.toml        # remove a file
 privconf unlink                        # undo all links in this project
 privconf sync                          # git pull/commit/push the store
 privconf status                        # see what's linked
+privconf list                          # list all projects
 ```
 
 On another machine:
 
 ```bash
 privconf init                          # one-time setup (or clone your store repo to ~/.privconf)
+# or:
+privconf init <remote-url>             # clone an existing store repo
 cd ~/Projects/myproj
 privconf link --sync                   # pull latest + create symlinks
 ```
@@ -61,7 +64,7 @@ cargo install --git https://github.com/gaojunran/privconf
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize privconf store at `~/.privconf/` |
+| `init [<remote>]` | Initialize privconf store at `~/.privconf/`. With a remote URL, clone an existing store repo instead. |
 | `add [-p <name>] [files...]` | Add files/dirs to store and create symlinks. Project name auto-detected from git remote. Omit files to create project only. |
 | `ignore [-p <name>] <files...>` | Ignore files in current project (add to `.git/info/exclude` or `skip-worktree`, no symlink, no store copy) |
 | `remove [-p <name>] <files...>` | Remove files from store, remove symlinks, restore originals |
@@ -69,6 +72,7 @@ cargo install --git https://github.com/gaojunran/privconf
 | `unlink` | Remove all symlinks and restore original files |
 | `status` | Show link status for current directory |
 | `sync` | Pull, commit, and push the store repo |
+| `list` | List all projects in the store |
 | `hook <bash\|zsh\|fish>` | Print shell hook script |
 
 ## Project Matching

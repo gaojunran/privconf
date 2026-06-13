@@ -3,6 +3,7 @@ pub mod hook;
 pub mod ignore;
 pub mod init;
 pub mod link;
+pub mod list;
 pub mod remove;
 pub mod status;
 pub mod sync;

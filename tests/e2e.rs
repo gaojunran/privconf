@@ -1096,3 +1096,156 @@ fn test_ignore_idempotent() {
     let ignored = config.get("project").unwrap().as_array().unwrap()[0].get("ignored").unwrap().as_array().unwrap();
     assert_eq!(ignored.len(), 1);
 }
+
+#[test]
+fn test_list_no_projects() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let output = env.privconf(&["list"]).assert_success();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("no projects"));
+}
+
+#[test]
+fn test_list_shows_projects() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo1 = env.create_git_repo("proj1", Some("git@github.com:myco/proj1.git"));
+    fs::write(repo1.join("mise.local.toml"), "node = '22'").unwrap();
+    fs::write(repo1.join(".env.local"), "FOO=bar").unwrap();
+    env.privconf(&["add", "mise.local.toml", ".env.local"])
+        .current_dir(&repo1)
+        .assert_success();
+
+    let repo2 = env.create_git_repo("proj2", Some("git@github.com:myco/proj2.git"));
+    fs::write(repo2.join("debug.log"), "debug").unwrap();
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo2)
+        .assert_success();
+
+    let output = env.privconf(&["list"]).assert_success();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("proj1"));
+    assert!(stdout.contains("2 file(s)"));
+    assert!(stdout.contains("proj2"));
+    assert!(stdout.contains("1 ignored"));
+}
+
+#[test]
+fn test_list_shows_project_with_both() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+    fs::write(repo.join("debug.log"), "debug").unwrap();
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let output = env.privconf(&["list"]).assert_success();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("myproj"));
+    assert!(stdout.contains("1 file(s)"));
+    assert!(stdout.contains("1 ignored"));
+}
+
+#[test]
+fn test_list_empty_project() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    env.privconf(&["add"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let output = env.privconf(&["list"]).assert_success();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("myproj"));
+    assert!(!stdout.contains("file(s)"));
+    assert!(!stdout.contains("ignored"));
+}
+
+#[test]
+fn test_init_clone_from_remote() {
+    let env = TestEnv::new();
+
+    let remote_store = env.root.path().join("remote-store");
+    fs::create_dir_all(remote_store.join("projects")).unwrap();
+    fs::write(remote_store.join("config.toml"), "[[project]]\nname = \"myproj\"\nmatch_remote = \"git@github.com:myco/myproj.git\"\nfiles = [\"mise.local.toml\"]\n").unwrap();
+    fs::write(remote_store.join("state.toml"), "").unwrap();
+    let git = |args: &[&str]| -> std::process::Output {
+        let mut cmd = Command::new("git");
+        cmd.args(args).current_dir(&remote_store);
+        cmd.output().unwrap()
+    };
+    git(&["init"]);
+    git(&["config", "user.name", "test"]);
+    git(&["config", "user.email", "test@test.com"]);
+    git(&["add", "-A"]);
+    git(&["commit", "-m", "init"]);
+
+    let clone_url = remote_store.to_string_lossy().to_string();
+
+    env.privconf(&["init", &clone_url]).assert_success();
+
+    let store = env.store_dir();
+    assert!(store.join("config.toml").exists());
+    assert!(store.join("state.toml").exists());
+    assert!(store.join("projects").exists());
+    assert!(store.join(".git").exists());
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(store.join("config.toml")).unwrap()).unwrap();
+    let projects = config.get("project").unwrap().as_array().unwrap();
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].get("name").unwrap().as_str(), Some("myproj"));
+}
+
+#[test]
+fn test_init_clone_creates_missing_files() {
+    let env = TestEnv::new();
+
+    let remote_store = env.root.path().join("remote-store");
+    fs::create_dir_all(remote_store.join("projects")).unwrap();
+    let git = |args: &[&str]| -> std::process::Output {
+        let mut cmd = Command::new("git");
+        cmd.args(args).current_dir(&remote_store);
+        cmd.output().unwrap()
+    };
+    git(&["init"]);
+    git(&["config", "user.name", "test"]);
+    git(&["config", "user.email", "test@test.com"]);
+    git(&["commit", "--allow-empty", "-m", "init"]);
+
+    let clone_url = remote_store.to_string_lossy().to_string();
+
+    env.privconf(&["init", &clone_url]).assert_success();
+
+    let store = env.store_dir();
+    assert!(store.join("config.toml").exists());
+    assert!(store.join("state.toml").exists());
+    assert!(store.join("projects").exists());
+}
+
+#[test]
+fn test_init_clone_fails_on_bad_remote() {
+    let env = TestEnv::new();
+
+    env.privconf(&["init", "file:///nonexistent/path"])
+        .assert_failure();
+}
+
+#[test]
+fn test_init_clone_idempotent_check() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    env.privconf(&["init", "file:///some/remote"])
+        .assert_failure();
+}
