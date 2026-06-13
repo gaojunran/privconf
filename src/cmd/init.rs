@@ -49,6 +49,18 @@ pub fn run(remote: Option<&str>) -> anyhow::Result<()> {
         ensure!(status.success(), "git init failed");
 
         let status = std::process::Command::new("git")
+            .args(["config", "user.name", "privconf"])
+            .current_dir(&store)
+            .status()?;
+        ensure!(status.success(), "git config user.name failed");
+
+        let status = std::process::Command::new("git")
+            .args(["config", "user.email", "privconf@localhost"])
+            .current_dir(&store)
+            .status()?;
+        ensure!(status.success(), "git config user.email failed");
+
+        let status = std::process::Command::new("git")
             .args(["add", "-A"])
             .current_dir(&store)
             .status()?;
