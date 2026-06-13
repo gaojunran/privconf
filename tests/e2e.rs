@@ -1249,3 +1249,102 @@ fn test_init_clone_idempotent_check() {
     env.privconf(&["init", "file:///some/remote"])
         .assert_failure();
 }
+
+#[test]
+fn test_add_in_worktree() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let main_repo = env.create_git_repo("main", Some("git@github.com:myco/myproj.git"));
+    fs::write(main_repo.join("README.md"), "# project").unwrap();
+    env.git(&["add", "README.md"], &main_repo).assert_success();
+    env.git(&["commit", "-m", "add readme"], &main_repo).assert_success();
+
+    let worktree = env.root.path().join("repos").join("worktree");
+    env.git(&["worktree", "add", &worktree.to_string_lossy()], &main_repo).assert_success();
+
+    fs::write(worktree.join("debug.log"), "debug info").unwrap();
+
+    env.privconf(&["add", "debug.log"])
+        .current_dir(&worktree)
+        .assert_success();
+
+    assert!(worktree.join("debug.log").is_symlink());
+
+    let git_common_dir_output = env.git(&["rev-parse", "--git-common-dir"], &worktree).assert_success();
+    let git_common_dir = String::from_utf8_lossy(&git_common_dir_output.stdout).trim().to_string();
+    let git_common_dir_path = if std::path::Path::new(&git_common_dir).is_absolute() {
+        std::path::PathBuf::from(&git_common_dir)
+    } else {
+        worktree.join(&git_common_dir)
+    };
+    let exclude = fs::read_to_string(git_common_dir_path.join("info").join("exclude")).unwrap();
+    assert!(exclude.contains("debug.log"));
+
+    let git_status = env.git(&["status", "--porcelain"], &worktree).assert_success();
+    assert!(String::from_utf8_lossy(&git_status.stdout).trim().is_empty());
+}
+
+#[test]
+fn test_ignore_in_worktree() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let main_repo = env.create_git_repo("main2", Some("git@github.com:myco/myproj2.git"));
+    fs::write(main_repo.join("config.override.toml"), "original").unwrap();
+    env.git(&["add", "config.override.toml"], &main_repo).assert_success();
+    env.git(&["commit", "-m", "add config"], &main_repo).assert_success();
+
+    let worktree = env.root.path().join("repos").join("worktree2");
+    env.git(&["worktree", "add", &worktree.to_string_lossy()], &main_repo).assert_success();
+
+    fs::write(worktree.join("config.override.toml"), "modified").unwrap();
+
+    env.privconf(&["ignore", "config.override.toml"])
+        .current_dir(&worktree)
+        .assert_success();
+
+    let ls_files = env.git(&["ls-files", "-v", "config.override.toml"], &worktree).assert_success();
+    assert!(String::from_utf8_lossy(&ls_files.stdout).starts_with('S'));
+
+    let git_status = env.git(&["status", "--porcelain"], &worktree).assert_success();
+    assert!(String::from_utf8_lossy(&git_status.stdout).trim().is_empty());
+}
+
+#[test]
+fn test_unlink_in_worktree() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let main_repo = env.create_git_repo("main3", Some("git@github.com:myco/myproj3.git"));
+    fs::write(main_repo.join("README.md"), "# project").unwrap();
+    env.git(&["add", "README.md"], &main_repo).assert_success();
+    env.git(&["commit", "-m", "add readme"], &main_repo).assert_success();
+
+    let worktree = env.root.path().join("repos").join("worktree3");
+    env.git(&["worktree", "add", &worktree.to_string_lossy()], &main_repo).assert_success();
+
+    fs::write(worktree.join("debug.log"), "debug info").unwrap();
+
+    env.privconf(&["add", "debug.log"])
+        .current_dir(&worktree)
+        .assert_success();
+
+    assert!(worktree.join("debug.log").is_symlink());
+
+    env.privconf(&["unlink"])
+        .current_dir(&worktree)
+        .assert_success();
+
+    assert!(!worktree.join("debug.log").exists());
+
+    let git_common_dir_output = env.git(&["rev-parse", "--git-common-dir"], &worktree).assert_success();
+    let git_common_dir = String::from_utf8_lossy(&git_common_dir_output.stdout).trim().to_string();
+    let git_common_dir_path = if std::path::Path::new(&git_common_dir).is_absolute() {
+        std::path::PathBuf::from(&git_common_dir)
+    } else {
+        worktree.join(&git_common_dir)
+    };
+    let exclude = fs::read_to_string(git_common_dir_path.join("info").join("exclude")).unwrap();
+    assert!(!exclude.contains("debug.log"));
+}

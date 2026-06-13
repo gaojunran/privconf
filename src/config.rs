@@ -191,6 +191,22 @@ pub fn git_root(path: &std::path::Path) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
 }
 
+pub fn git_common_dir(path: &std::path::Path) -> anyhow::Result<PathBuf> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--git-common-dir"])
+        .current_dir(path)
+        .output()?;
+    if !output.status.success() {
+        bail!("not inside a git repository");
+    }
+    let dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if std::path::Path::new(&dir).is_absolute() {
+        Ok(PathBuf::from(dir))
+    } else {
+        Ok(path.join(dir))
+    }
+}
+
 pub fn git_is_tracked(git_root: &std::path::Path, rel_path: &std::path::Path) -> bool {
     let output = std::process::Command::new("git")
         .args(["ls-files", "--error-unmatch"])
@@ -204,7 +220,10 @@ pub fn git_is_tracked(git_root: &std::path::Path, rel_path: &std::path::Path) ->
 }
 
 pub fn git_add_to_exclude(git_root: &std::path::Path, rel_path: &std::path::Path) -> anyhow::Result<()> {
-    let exclude_file = git_root.join(".git").join("info").join("exclude");
+    let exclude_file = git_common_dir(git_root)?.join("info").join("exclude");
+    if let Some(parent) = exclude_file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let rel_str = rel_path.to_string_lossy().to_string();
     if exclude_file.exists() {
         let content = std::fs::read_to_string(&exclude_file)?;
@@ -222,7 +241,7 @@ pub fn git_add_to_exclude(git_root: &std::path::Path, rel_path: &std::path::Path
 }
 
 pub fn git_remove_from_exclude(git_root: &std::path::Path, rel_path: &std::path::Path) -> anyhow::Result<()> {
-    let exclude_file = git_root.join(".git").join("info").join("exclude");
+    let exclude_file = git_common_dir(git_root)?.join("info").join("exclude");
     if !exclude_file.exists() {
         return Ok(());
     }
