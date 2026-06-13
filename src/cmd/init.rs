@@ -48,6 +48,18 @@ pub fn run(remote: Option<&str>) -> anyhow::Result<()> {
             .status()?;
         ensure!(status.success(), "git init failed");
 
+        let status = std::process::Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(&store)
+            .status()?;
+        ensure!(status.success(), "git add failed");
+
+        let status = std::process::Command::new("git")
+            .args(["commit", "-m", "init privconf store"])
+            .current_dir(&store)
+            .status()?;
+        ensure!(status.success(), "git commit failed");
+
         println!("initialized privconf store at {}", store.display());
         println!("add a remote with: cd {} && git remote add origin <url>", store.display());
     }

@@ -4,7 +4,7 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
     crate::config::ensure_initialized()?;
 
     if sync {
-        crate::cmd::sync::run()?;
+        crate::cmd::sync::run(None, false)?;
     }
 
     let cwd = std::env::current_dir()?;

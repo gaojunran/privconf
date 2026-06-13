@@ -14,6 +14,8 @@ privconf ignore debug.log              # ignore a file (no symlink, just hide fr
 privconf remove mise.local.toml        # remove a file
 privconf unlink                        # undo all links in this project
 privconf sync                          # git pull/commit/push the store
+privconf sync -m "update secrets"     # custom commit message
+privconf sync --dry-run               # preview without making changes
 privconf status                        # see what's linked
 privconf list                          # list all projects
 ```
@@ -71,7 +73,7 @@ cargo install --git https://github.com/gaojunran/privconf
 | `link [-s] [-q]` | Rebuild symlinks for current project. `--sync` / `-s` pulls store first. `--quiet` / `-q` suppresses output. |
 | `unlink` | Remove all symlinks and restore original files |
 | `status` | Show link status for current directory |
-| `sync` | Pull, commit, and push the store repo |
+| `sync [-m <msg>] [--dry-run]` | Pull, commit, and push the store repo. `--message` / `-m` sets commit message (default: "sync"). `--dry-run` previews changes without committing. |
 | `list` | List all projects in the store |
 | `hook <bash\|zsh\|fish>` | Print shell hook script |
 
@@ -148,6 +150,32 @@ skip_worktree = false
 - **Untracked files** (not in git): added to `.git/info/exclude`
 - **Tracked files** (committed to git): `git update-index --skip-worktree`
 - **Backup files** (`*.privconf.bak`): also added to `.git/info/exclude`
+
+## Git Worktree Support
+
+privconf correctly handles git worktrees by writing to the shared `info/exclude` (resolved via `git rev-parse --git-common-dir`), not the worktree-specific git directory.
+
+## Changelog
+
+### v0.5.0
+
+- **File permissions preserved**: `add` now preserves executable bits when copying files and directories to the store
+- **Sync improvements**:
+  - `--dry-run` flag to preview changes without committing
+  - `-m` / `--message` flag for custom commit messages
+  - Merge conflict detection with clear error message
+  - "no remote configured" hint when store has no remote
+  - "no changes to commit" when store is clean
+- **Git worktree support**: correctly writes to shared `info/exclude` via `--git-common-dir`
+- **`init` now commits**: initial `config.toml` and `state.toml` are committed automatically
+- **Bug fix**: `backup_path` now appends `.privconf.bak` suffix instead of replacing the last extension (`foo.tar.gz` → `foo.tar.gz.privconf.bak`, not `foo.tar.privconf.bak`)
+
+### v0.4.0
+
+- `privconf list` command
+- `privconf init <remote>` to clone from URL
+- Skip push when store has no remote
+- Check staged changes before commit in sync
 
 ## License
 

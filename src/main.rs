@@ -47,7 +47,14 @@ enum Commands {
     /// Show link status for current directory
     Status,
     /// Sync privconf store with remote
-    Sync,
+    Sync {
+        /// Commit message (default: "sync")
+        #[arg(long, short)]
+        message: Option<String>,
+        /// Show what would be done without making changes
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// List all projects in the store
     List,
     /// Print shell hook for auto-link on cd
@@ -75,7 +82,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Link { quiet, sync } => cmd::link::run(quiet, sync),
         Commands::Unlink => cmd::unlink::run(),
         Commands::Status => cmd::status::run(),
-        Commands::Sync => cmd::sync::run(),
+        Commands::Sync { message, dry_run } => cmd::sync::run(message.as_deref(), dry_run),
         Commands::List => cmd::list::run(),
         Commands::Hook { shell } => cmd::hook::run(&shell),
         Commands::Ignore { project, files } => cmd::ignore::run(project, files),

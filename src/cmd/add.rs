@@ -1,5 +1,7 @@
 use anyhow::Context;
 
+use std::os::unix::fs::PermissionsExt;
+
 pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<()> {
     crate::config::ensure_initialized()?;
 
@@ -65,7 +67,7 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::copy(&source, &dest)
+            copy_file_preserving(&source, &dest)
                 .with_context(|| format!("copying {} to store", file))?;
             eprintln!("  copied {} to store", file);
         }
@@ -107,7 +109,7 @@ fn copy_dir_contents(src: &std::path::Path, dest: &std::path::Path) -> anyhow::R
             std::fs::create_dir_all(&dest_path)?;
             copy_dir_contents(&src_path, &dest_path)?;
         } else {
-            std::fs::copy(&src_path, &dest_path)
+            copy_file_preserving(&src_path, &dest_path)
                 .with_context(|| format!("copying {} to store", src_path.display()))?;
         }
     }
@@ -123,9 +125,17 @@ fn merge_dir_recursive(src: &std::path::Path, dest: &std::path::Path) -> anyhow:
             std::fs::create_dir_all(&dest_path)?;
             merge_dir_recursive(&src_path, &dest_path)?;
         } else if !dest_path.exists() {
-            std::fs::copy(&src_path, &dest_path)
+            copy_file_preserving(&src_path, &dest_path)
                 .with_context(|| format!("copying {} to store", src_path.display()))?;
         }
     }
+    Ok(())
+}
+
+fn copy_file_preserving(src: &std::path::Path, dest: &std::path::Path) -> anyhow::Result<()> {
+    std::fs::copy(src, dest)
+        .with_context(|| format!("copying {} to {}", src.display(), dest.display()))?;
+    let mode = src.metadata()?.permissions().mode();
+    std::fs::set_permissions(dest, std::fs::Permissions::from_mode(mode))?;
     Ok(())
 }

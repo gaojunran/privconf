@@ -1348,3 +1348,136 @@ fn test_unlink_in_worktree() {
     let exclude = fs::read_to_string(git_common_dir_path.join("info").join("exclude")).unwrap();
     assert!(!exclude.contains("debug.log"));
 }
+
+#[test]
+fn test_add_preserves_executable_permission() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    let script = repo.join("deploy.sh");
+    fs::write(&script, "#!/bin/sh\necho deploy").unwrap();
+
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+    env.privconf(&["add", "deploy.sh"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let store_file = env.project_dir("myproj").join("deploy.sh");
+    assert!(store_file.exists());
+    let mode = store_file.metadata().unwrap().permissions().mode();
+    assert_eq!(mode & 0o111, 0o111, "executable bit should be preserved");
+}
+
+#[test]
+fn test_add_directory_preserves_executable_permission() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("scripts")).unwrap();
+    let script = repo.join("scripts/deploy.sh");
+    fs::write(&script, "#!/bin/sh\necho deploy").unwrap();
+
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+    env.privconf(&["add", "scripts"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let store_file = env.project_dir("myproj").join("scripts/deploy.sh");
+    assert!(store_file.exists());
+    let mode = store_file.metadata().unwrap().permissions().mode();
+    assert_eq!(mode & 0o111, 0o111, "executable bit should be preserved in directory copy");
+}
+
+#[test]
+fn test_sync_no_changes_skips_commit() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let output = env.privconf(&["sync"]).assert_success();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("no changes to commit") || stderr.contains("no remote configured"));
+}
+
+#[test]
+fn test_sync_no_remote_skips_push() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("config.local"), "key = value").unwrap();
+    env.privconf(&["add", "config.local"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let output = env.privconf(&["sync"]).assert_success();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("no remote configured"));
+}
+
+#[test]
+fn test_sync_with_custom_message() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("config.local"), "key = value").unwrap();
+    env.privconf(&["add", "config.local"])
+        .current_dir(&repo)
+        .assert_success();
+
+    env.privconf(&["sync", "--message", "custom commit msg"]).assert_success();
+
+    let store = env.store_dir();
+    let log = env.git(&["log", "--oneline", "-1"], store).assert_success();
+    let msg = String::from_utf8_lossy(&log.stdout).trim().to_string();
+    assert!(msg.contains("custom commit msg"));
+}
+
+#[test]
+fn test_sync_dry_run() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("config.local"), "key = value").unwrap();
+    env.privconf(&["add", "config.local"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let output = env.privconf(&["sync", "--dry-run"]).assert_success();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("would stage and commit"));
+
+    let store = env.store_dir();
+    let log_before = env.git(&["log", "--oneline"], store).assert_success();
+    let log_after = env.git(&["log", "--oneline"], store).assert_success();
+    assert_eq!(
+        String::from_utf8_lossy(&log_before.stdout),
+        String::from_utf8_lossy(&log_after.stdout),
+        "dry-run should not create commits"
+    );
+}
+
+#[test]
+fn test_backup_path_multi_extension() {
+    let path = std::path::PathBuf::from("foo.tar.gz");
+    let bak = crate_test_backup_path(&path);
+    assert!(bak.to_string_lossy().ends_with("foo.tar.gz.privconf.bak"), "backup path was: {}", bak.display());
+}
+
+fn crate_test_backup_path(path: &std::path::Path) -> std::path::PathBuf {
+    let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let parent = path.parent();
+    let mut new_name = file_name;
+    new_name.push_str(".privconf.bak");
+    match parent {
+        Some(p) => p.join(new_name),
+        None => std::path::PathBuf::from(new_name),
+    }
+}
