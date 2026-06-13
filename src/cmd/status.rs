@@ -18,6 +18,12 @@ pub fn run() -> anyhow::Result<()> {
                 let is_symlink = target.is_symlink();
                 println!("  {} {} {}", file, if is_symlink { "→" } else { "✗" }, if linked { "linked" } else { "not linked" });
             }
+            for file in &p.ignored {
+                let ignored = state.linked.iter().any(|e| {
+                    e.project == p.name && e.file == *file && e.ignored
+                });
+                println!("  {} ✗ {}", file, if ignored { "ignored" } else { "not ignored" });
+            }
         }
         None => println!("no project matches current directory"),
     }
@@ -31,9 +37,10 @@ pub fn run() -> anyhow::Result<()> {
     if !local_entries.is_empty() {
         println!("\nlinked files in this directory:");
         for entry in &local_entries {
+            let kind = if entry.ignored { "ignored" } else { "linked" };
             println!(
-                "  {} (project: {}, skip-worktree: {})",
-                entry.file, entry.project, entry.skip_worktree
+                "  {} (project: {}, skip-worktree: {}, {})",
+                entry.file, entry.project, entry.skip_worktree, kind
             );
         }
     }

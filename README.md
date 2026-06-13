@@ -10,6 +10,7 @@ cd ~/Projects/myproj
 privconf add mise.local.toml .env      # add files (project auto-detected from git remote)
 privconf add                           # or just create the project entry, add files later
 privconf add scripts/                  # directories work too
+privconf ignore debug.log              # ignore a file (no symlink, just hide from git)
 privconf remove mise.local.toml        # remove a file
 privconf unlink                        # undo all links in this project
 privconf sync                          # git pull/commit/push the store
@@ -62,6 +63,7 @@ cargo install --git https://github.com/gaojunran/privconf
 |---------|-------------|
 | `init` | Initialize privconf store at `~/.privconf/` |
 | `add [-p <name>] [files...]` | Add files/dirs to store and create symlinks. Project name auto-detected from git remote. Omit files to create project only. |
+| `ignore [-p <name>] <files...>` | Ignore files in current project (add to `.git/info/exclude` or `skip-worktree`, no symlink, no store copy) |
 | `remove [-p <name>] <files...>` | Remove files from store, remove symlinks, restore originals |
 | `link [-s] [-q]` | Rebuild symlinks for current project. `--sync` / `-s` pulls store first. `--quiet` / `-q` suppresses output. |
 | `unlink` | Remove all symlinks and restore original files |
@@ -93,11 +95,13 @@ export PRIVCONF_DIR=/path/to/custom/store
 name = "myproj"
 match_remote = "git@github.com:myco/myproj.git"
 files = ["mise.local.toml", ".env.local"]
+ignored = ["debug.log"]
 
 [[project]]
 name = "work"
 match_path = "~/Projects/work/*"
 files = [".env", "scripts/deploy.sh"]
+ignored = ["*.log"]
 ```
 
 ### `state.toml`
@@ -111,6 +115,11 @@ file = "mise.local.toml"
 target = "/home/user/Projects/myproj/mise.local.toml"
 skip_worktree = false
 ```
+
+## `add` vs `ignore`
+
+- **`add`** — copies the file to the store, creates a symlink, and hides it from git. The file is synced across devices via the store repo.
+- **`ignore`** — does NOT copy or symlink. Just hides the file from git (`.git/info/exclude` or `skip-worktree`). Use for files that are machine-specific and don't need syncing, like `debug.log` or local scratch files.
 
 ## How Existing Files Are Handled
 

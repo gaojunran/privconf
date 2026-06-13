@@ -26,7 +26,11 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
     for file in &files {
         let entry = state.linked.iter().find(|e| e.project == name && e.file == *file).cloned();
         if let Some(entry) = entry {
-            crate::config::unlink_file(&entry, git_root.as_deref(), &mut state)?;
+            if entry.ignored {
+                crate::config::unignore_file(&entry, git_root.as_deref(), &mut state)?;
+            } else {
+                crate::config::unlink_file(&entry, git_root.as_deref(), &mut state)?;
+            }
             removed_count += 1;
         } else {
             let target = cwd.join(file);
@@ -59,9 +63,10 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
         eprintln!("  removed {file} from store");
 
         project.files.retain(|f| f != file);
+        project.ignored.retain(|f| f != file);
     }
 
-    if project.files.is_empty() {
+    if project.files.is_empty() && project.ignored.is_empty() {
         let project_dir = crate::config::project_dir(&name);
         if project_dir.exists() {
             std::fs::remove_dir_all(&project_dir)?;

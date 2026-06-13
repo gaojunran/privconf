@@ -43,7 +43,10 @@ pub struct ProjectEntry {
     pub match_remote: Option<String>,
     #[serde(default)]
     pub match_path: Option<String>,
+    #[serde(default)]
     pub files: Vec<String>,
+    #[serde(default)]
+    pub ignored: Vec<String>,
 }
 
 impl ProjectEntry {
@@ -113,6 +116,8 @@ pub struct LinkedEntry {
     pub file: String,
     pub target: PathBuf,
     pub skip_worktree: bool,
+    #[serde(default)]
+    pub ignored: bool,
 }
 
 pub fn load_config() -> anyhow::Result<Config> {
@@ -342,6 +347,7 @@ pub fn link_file(
             file: file.to_string(),
             target: target.clone(),
             skip_worktree: false,
+            ignored: false,
         });
         if !quiet {
             eprintln!("  linked {file} (directory, excluded)");
@@ -366,6 +372,7 @@ pub fn link_file(
         file: file.to_string(),
         target: target.clone(),
         skip_worktree: tracked,
+        ignored: false,
     });
 
     if !quiet {
@@ -418,5 +425,56 @@ pub fn unlink_file(
 
     state.linked.retain(|e| !(e.project == entry.project && e.file == entry.file));
     eprintln!("  unlinked {}", entry.file);
+    Ok(true)
+}
+
+pub fn ignore_file(
+    project_name: &str,
+    file: &str,
+    cwd: &std::path::Path,
+    git_root: Option<&std::path::Path>,
+    state: &mut State,
+) -> anyhow::Result<bool> {
+    let target = cwd.join(file);
+    let rel_path = PathBuf::from(file);
+    let tracked = git_root.is_some_and(|root| git_is_tracked(root, &rel_path));
+
+    if let Some(root) = git_root {
+        if tracked {
+            git_set_skip_worktree(root, &rel_path)?;
+        } else {
+            git_add_to_exclude(root, &rel_path)?;
+        }
+    }
+
+    state.linked.retain(|e| !(e.project == project_name && e.file == file));
+    state.linked.push(LinkedEntry {
+        project: project_name.to_string(),
+        file: file.to_string(),
+        target: target.clone(),
+        skip_worktree: tracked,
+        ignored: true,
+    });
+
+    eprintln!("  ignored {file}{}", if tracked { " (skip-worktree)" } else { " (excluded)" });
+    Ok(true)
+}
+
+pub fn unignore_file(
+    entry: &LinkedEntry,
+    git_root: Option<&std::path::Path>,
+    state: &mut State,
+) -> anyhow::Result<bool> {
+    if let Some(root) = git_root {
+        let rel_path = PathBuf::from(&entry.file);
+        if entry.skip_worktree {
+            git_unset_skip_worktree(root, &rel_path).ok();
+        } else {
+            git_remove_from_exclude(root, &rel_path).ok();
+        }
+    }
+
+    state.linked.retain(|e| !(e.project == entry.project && e.file == entry.file));
+    eprintln!("  unignored {}", entry.file);
     Ok(true)
 }

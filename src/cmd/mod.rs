@@ -1,5 +1,6 @@
 pub mod add;
 pub mod hook;
+pub mod ignore;
 pub mod init;
 pub mod link;
 pub mod remove;

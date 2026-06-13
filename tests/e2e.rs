@@ -853,3 +853,246 @@ fn test_link_prefers_remote_match_over_path() {
     assert_eq!(projects.len(), 1);
     assert_eq!(projects[0].get("match_remote").unwrap().as_str(), Some("git@github.com:myco/myproj.git"));
 }
+
+#[test]
+fn test_ignore_untracked_file() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("debug.log"), "debug info").unwrap();
+
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(exclude.contains("debug.log"));
+
+    let git_status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert!(String::from_utf8_lossy(&git_status.stdout).trim().is_empty());
+
+    assert!(!repo.join("debug.log").is_symlink());
+    assert_eq!(fs::read_to_string(repo.join("debug.log")).unwrap(), "debug info");
+}
+
+#[test]
+fn test_ignore_tracked_file_skip_worktree() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("config.override.toml"), "original").unwrap();
+    env.git(&["add", "config.override.toml"], &repo).assert_success();
+    env.git(&["commit", "-m", "add config"], &repo).assert_success();
+
+    fs::write(repo.join("config.override.toml"), "modified").unwrap();
+
+    env.privconf(&["ignore", "config.override.toml"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let ls_files = env.git(&["ls-files", "-v", "config.override.toml"], &repo).assert_success();
+    assert!(String::from_utf8_lossy(&ls_files.stdout).starts_with('S'));
+
+    let git_status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert!(String::from_utf8_lossy(&git_status.stdout).trim().is_empty());
+}
+
+#[test]
+fn test_ignore_saves_to_config() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("debug.log"), "debug info").unwrap();
+
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let project = &config.get("project").unwrap().as_array().unwrap()[0];
+    let ignored = project.get("ignored").unwrap().as_array().unwrap();
+    assert_eq!(ignored.len(), 1);
+    assert_eq!(ignored[0].as_str(), Some("debug.log"));
+    assert!(project.get("files").unwrap().as_array().unwrap().is_empty());
+}
+
+#[test]
+fn test_ignore_multiple_files() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("debug.log"), "debug").unwrap();
+    fs::write(repo.join("error.log"), "error").unwrap();
+
+    env.privconf(&["ignore", "debug.log", "error.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(exclude.contains("debug.log"));
+    assert!(exclude.contains("error.log"));
+}
+
+#[test]
+fn test_ignore_appends_to_existing_project() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+    fs::write(repo.join("debug.log"), "debug").unwrap();
+
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let project = &config.get("project").unwrap().as_array().unwrap()[0];
+    assert_eq!(project.get("files").unwrap().as_array().unwrap().len(), 1);
+    assert_eq!(project.get("ignored").unwrap().as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn test_remove_ignored_file() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("debug.log"), "debug info").unwrap();
+
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(exclude.contains("debug.log"));
+
+    env.privconf(&["remove", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(!exclude.contains("debug.log"));
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let projects = config.get("project").unwrap().as_array().unwrap();
+    assert!(projects.is_empty());
+}
+
+#[test]
+fn test_unlink_ignores_ignored_files() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+    fs::write(repo.join("debug.log"), "debug").unwrap();
+
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    env.privconf(&["unlink"]).current_dir(&repo).assert_success();
+
+    assert!(!repo.join("mise.local.toml").exists());
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(!exclude.contains("debug.log"));
+}
+
+#[test]
+fn test_link_processes_ignored_files() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+    fs::write(repo.join("debug.log"), "debug").unwrap();
+
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    env.privconf(&["unlink"]).current_dir(&repo).assert_success();
+
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(!exclude.contains("debug.log"));
+    assert!(!exclude.contains("mise.local.toml"));
+
+    env.privconf(&["link"]).current_dir(&repo).assert_success();
+
+    assert!(repo.join("mise.local.toml").is_symlink());
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(exclude.contains("debug.log"));
+    assert!(exclude.contains("mise.local.toml"));
+}
+
+#[test]
+fn test_status_shows_ignored_files() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("debug.log"), "debug").unwrap();
+
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let output = env.privconf(&["status"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("debug.log"));
+    assert!(stdout.contains("ignored"));
+}
+
+#[test]
+fn test_ignore_no_remote_requires_project_flag() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", None);
+    fs::write(repo.join("debug.log"), "debug").unwrap();
+
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_failure();
+
+    env.privconf(&["ignore", "-p", "myproj", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+}
+
+#[test]
+fn test_ignore_idempotent() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("debug.log"), "debug").unwrap();
+
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let ignored = config.get("project").unwrap().as_array().unwrap()[0].get("ignored").unwrap().as_array().unwrap();
+    assert_eq!(ignored.len(), 1);
+}

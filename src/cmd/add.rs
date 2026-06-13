@@ -47,6 +47,7 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
             match_remote,
             match_path: None,
             files: expanded.clone(),
+            ignored: vec![],
         });
         eprintln!("created project '{name}'");
     }

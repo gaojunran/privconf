@@ -50,6 +50,14 @@ enum Commands {
         /// Shell type: bash, zsh, or fish
         shell: String,
     },
+    /// Ignore files in current project (add to .git/info/exclude or skip-worktree, no symlink)
+    Ignore {
+        /// Project name (auto-detected from git remote if omitted)
+        #[arg(long, short)]
+        project: Option<String>,
+        /// Files to ignore
+        files: Vec<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -64,5 +72,6 @@ fn main() -> anyhow::Result<()> {
         Commands::Status => cmd::status::run(),
         Commands::Sync => cmd::sync::run(),
         Commands::Hook { shell } => cmd::hook::run(&shell),
+        Commands::Ignore { project, files } => cmd::ignore::run(project, files),
     }
 }

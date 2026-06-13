@@ -23,12 +23,23 @@ pub fn run() -> anyhow::Result<()> {
     let mut not_linked = 0usize;
 
     for entry in &entries {
-        match crate::config::unlink_file(entry, git_root.as_deref(), &mut state) {
-            Ok(true) => unlinked += 1,
-            Ok(false) => not_linked += 1,
-            Err(e) => {
-                eprintln!("  error unlinking {}: {e}", entry.file);
-                not_linked += 1;
+        if entry.ignored {
+            match crate::config::unignore_file(entry, git_root.as_deref(), &mut state) {
+                Ok(true) => unlinked += 1,
+                Ok(false) => not_linked += 1,
+                Err(e) => {
+                    eprintln!("  error unignoring {}: {e}", entry.file);
+                    not_linked += 1;
+                }
+            }
+        } else {
+            match crate::config::unlink_file(entry, git_root.as_deref(), &mut state) {
+                Ok(true) => unlinked += 1,
+                Ok(false) => not_linked += 1,
+                Err(e) => {
+                    eprintln!("  error unlinking {}: {e}", entry.file);
+                    not_linked += 1;
+                }
             }
         }
     }

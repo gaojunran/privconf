@@ -19,6 +19,7 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
 
     let mut state = crate::config::load_state()?;
     let mut linked_count = 0usize;
+    let mut ignored_count = 0usize;
     let mut skipped_count = 0usize;
 
     for file in &project.files {
@@ -34,9 +35,29 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
         }
     }
 
+    for file in &project.ignored {
+        let already = state.linked.iter().any(|e| {
+            e.project == project.name && e.file == *file && e.ignored
+        });
+        if already {
+            skipped_count += 1;
+            continue;
+        }
+        match crate::config::ignore_file(&project.name, file, &cwd, git_root.as_deref(), &mut state) {
+            Ok(true) => ignored_count += 1,
+            Ok(false) => skipped_count += 1,
+            Err(e) => {
+                if !quiet {
+                    eprintln!("  error ignoring {file}: {e}");
+                }
+                skipped_count += 1;
+            }
+        }
+    }
+
     crate::config::save_state(&state)?;
     if !quiet {
-        eprintln!("linked {linked_count} file(s), skipped {skipped_count}");
+        eprintln!("linked {linked_count} file(s), ignored {ignored_count}, skipped {skipped_count}");
     }
     Ok(())
 }
