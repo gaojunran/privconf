@@ -243,7 +243,7 @@ fn test_add_removes_original_file() {
         .assert_success();
 
     assert!(repo.join("mise.local.toml").is_symlink());
-    assert!(!repo.join("mise.local.privconf.bak").exists());
+    assert!(!repo.join("mise.local.toml.privconf.bak").exists());
     assert_eq!(fs::read_to_string(repo.join("mise.local.toml")).unwrap(), "original");
 }
 
@@ -347,13 +347,13 @@ fn test_unlink_restores_from_backup() {
         .current_dir(&repo)
         .assert_success();
 
-    fs::write(repo.join("mise.local.privconf.bak"), "modified").unwrap();
+    fs::write(repo.join("mise.local.toml.privconf.bak"), "modified").unwrap();
 
     env.privconf(&["unlink"]).current_dir(&repo).assert_success();
 
     assert!(repo.join("mise.local.toml").exists());
     assert_eq!(fs::read_to_string(repo.join("mise.local.toml")).unwrap(), "modified");
-    assert!(!repo.join("mise.local.privconf.bak").exists());
+    assert!(!repo.join("mise.local.toml.privconf.bak").exists());
 }
 
 #[test]
@@ -411,7 +411,7 @@ fn test_remove_with_backup_restore() {
         .current_dir(&repo)
         .assert_success();
 
-    assert!(repo.join("mise.local.privconf.bak").exists());
+    assert!(repo.join("mise.local.toml.privconf.bak").exists());
 
     env.privconf(&["remove", "mise.local.toml"])
         .current_dir(&repo)
@@ -419,7 +419,7 @@ fn test_remove_with_backup_restore() {
 
     assert!(repo.join("mise.local.toml").exists());
     assert_eq!(fs::read_to_string(repo.join("mise.local.toml")).unwrap(), "modified");
-    assert!(!repo.join("mise.local.privconf.bak").exists());
+    assert!(!repo.join("mise.local.toml.privconf.bak").exists());
 }
 
 #[test]

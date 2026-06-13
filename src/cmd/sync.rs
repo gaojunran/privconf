@@ -17,16 +17,35 @@ pub fn run() -> anyhow::Result<()> {
         .status()?;
     ensure!(status.success(), "git add failed");
 
-    let _status = std::process::Command::new("git")
-        .args(["commit", "-m", "sync"])
+    let has_changes = std::process::Command::new("git")
+        .args(["diff", "--cached", "--quiet"])
         .current_dir(&store)
-        .status();
+        .status()
+        .map(|s| !s.success())
+        .unwrap_or(true);
 
-    let status = std::process::Command::new("git")
-        .args(["push"])
+    if has_changes {
+        let status = std::process::Command::new("git")
+            .args(["commit", "-m", "sync"])
+            .current_dir(&store)
+            .status()?;
+        ensure!(status.success(), "git commit failed");
+    }
+
+    let has_remote = std::process::Command::new("git")
+        .args(["remote"])
         .current_dir(&store)
-        .status()?;
-    ensure!(status.success(), "git push failed");
+        .output()
+        .map(|o| !o.stdout.trim_ascii().is_empty())
+        .unwrap_or(false);
+
+    if has_remote {
+        let status = std::process::Command::new("git")
+            .args(["push"])
+            .current_dir(&store)
+            .status()?;
+        ensure!(status.success(), "git push failed");
+    }
 
     println!("synced");
     Ok(())

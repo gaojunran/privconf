@@ -20,12 +20,10 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
         crate::config::get_git_remote_from_root(root)
     });
 
-    let expanded = expand_paths(&cwd, &files)?;
-
     let mut config = crate::config::load_config()?;
 
     if let Some(existing) = config.project.iter_mut().find(|p| p.name == name) {
-        for file in &expanded {
+        for file in &files {
             if !existing.files.contains(file) {
                 existing.files.push(file.clone());
             }
@@ -33,7 +31,7 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
         if existing.match_remote.is_none() && match_remote.is_some() {
             existing.match_remote = match_remote.clone();
         }
-        if expanded.is_empty() {
+        if files.is_empty() {
             eprintln!("project '{name}' already exists");
         } else {
             eprintln!("added files to existing project '{name}'");
@@ -46,14 +44,14 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
             name: name.clone(),
             match_remote,
             match_path: None,
-            files: expanded.clone(),
+            files: files.clone(),
             ignored: vec![],
         });
         eprintln!("created project '{name}'");
     }
 
     let project_dir = crate::config::project_dir(&name);
-    for file in &expanded {
+    for file in &files {
         let source = cwd.join(file);
         if !source.exists() {
             eprintln!("  warning: {} does not exist, skipping copy", file);
@@ -77,7 +75,7 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
 
     let mut state = crate::config::load_state()?;
     let mut linked_count = 0usize;
-    for file in &expanded {
+    for file in &files {
         if crate::config::link_file(&name, file, &cwd, git_root.as_deref(), &mut state, false, false)? {
             linked_count += 1;
         }
@@ -88,19 +86,6 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
         eprintln!("linked {linked_count} file(s)");
     }
     Ok(())
-}
-
-fn expand_paths(cwd: &std::path::Path, files: &[String]) -> anyhow::Result<Vec<String>> {
-    let mut result = Vec::new();
-    for file in files {
-        let path = cwd.join(file);
-        if !path.exists() {
-            result.push(file.clone());
-        } else {
-            result.push(file.clone());
-        }
-    }
-    Ok(result)
 }
 
 fn copy_dir_recursive(src: &std::path::Path, dest: &std::path::Path) -> anyhow::Result<()> {

@@ -258,17 +258,13 @@ pub fn git_unset_skip_worktree(git_root: &std::path::Path, rel_path: &std::path:
 }
 
 pub fn backup_path(path: &std::path::Path) -> PathBuf {
-    if path.extension().is_some() {
-        path.with_extension("privconf.bak")
-    } else {
-        let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        let parent = path.parent();
-        let mut new_name = file_name;
-        new_name.push_str(".privconf.bak");
-        match parent {
-            Some(p) => p.join(new_name),
-            None => PathBuf::from(new_name),
-        }
+    let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let parent = path.parent();
+    let mut new_name = file_name;
+    new_name.push_str(".privconf.bak");
+    match parent {
+        Some(p) => p.join(new_name),
+        None => PathBuf::from(new_name),
     }
 }
 
@@ -392,6 +388,8 @@ pub fn unlink_file(
         return Ok(false);
     }
 
+    // remove_file works for both file and directory symlinks (it removes
+    // the symlink itself, not the target directory)
     std::fs::remove_file(target)
         .with_context(|| format!("removing symlink {}", target.display()))?;
 
