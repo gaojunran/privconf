@@ -29,7 +29,7 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
             Ok(false) => skipped_count += 1,
             Err(e) => {
                 if !quiet {
-                    eprintln!("{} linking {file}: {e}", style::cross());
+                    eprintln!("{} link {}: {e}", style::cross(), file);
                 }
                 skipped_count += 1;
             }
@@ -57,7 +57,7 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
                 Ok(false) => skipped_count += 1,
                 Err(e) => {
                     if !quiet {
-                        eprintln!("{} ignoring {file}: {e}", style::cross());
+                        eprintln!("{} ignore {}: {e}", style::cross(), file);
                     }
                     skipped_count += 1;
                 }

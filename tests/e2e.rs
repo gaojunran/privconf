@@ -185,7 +185,7 @@ fn test_add_nonexistent_file_warns() {
         .assert_success();
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("warn"));
+    assert!(stderr.contains("skip"));
 }
 
 #[test]

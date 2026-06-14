@@ -63,7 +63,7 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
             std::fs::remove_file(&store_path)
                 .with_context(|| format!("removing {} from store", file))?;
         }
-        eprintln!("  {} {} {}", style::check(), style::dim("removed from store"), file);
+        eprintln!("  {} {} {}", style::check(), style::dim("removed"), file);
 
         project.files.retain(|f| f != file);
         project.ignored.retain(|f| f != file);
@@ -75,7 +75,7 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
             std::fs::remove_dir_all(&project_dir)?;
         }
         config.project.retain(|p| p.name != name);
-        eprintln!("  {} {}", style::dim("removed empty project"), style::bold(&name));
+        eprintln!("  {} {} {}", style::check(), style::dim("removed empty project"), style::bold(&name));
     }
 
     crate::config::save_config(&config)?;

@@ -1,3 +1,4 @@
+use crate::style;
 use anyhow::{Context, ensure};
 
 pub fn run(remote: Option<&str>) -> anyhow::Result<()> {
@@ -36,7 +37,7 @@ pub fn run(remote: Option<&str>) -> anyhow::Result<()> {
             crate::config::save_state(&state)?;
         }
 
-        println!("initialized privconf store from {url}");
+        println!("{} {}", style::check(), style::green(&format!("initialized privconf store from {url}")));
     } else {
         std::fs::create_dir_all(store.join("projects"))?;
 
@@ -78,8 +79,8 @@ pub fn run(remote: Option<&str>) -> anyhow::Result<()> {
             .status()?;
         ensure!(status.success(), "git commit failed");
 
-        println!("initialized privconf store at {}", store.display());
-        println!("add a remote with: cd {} && git remote add origin <url>", store.display());
+        println!("{} {}", style::check(), style::green(&format!("initialized privconf store at {}", store.display())));
+        println!("  {} {}", style::dim("add a remote with:"), style::dim(&format!("cd {} && git remote add origin <url>", store.display())));
     }
     Ok(())
 }

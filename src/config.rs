@@ -308,7 +308,7 @@ pub fn link_file(
     let source = project_dir(project_name).join(file);
     if !source.exists() {
         if !quiet {
-            eprintln!("{} {} {}", style::yellow("skip"), file, style::dim("source not found in store"));
+            eprintln!("{} {}: {}", style::yellow("skip"), file, style::dim("source not found in store"));
         }
         return Ok(false);
     }
@@ -420,7 +420,7 @@ pub fn unlink_file(
 ) -> anyhow::Result<bool> {
     let target = &entry.target;
     if !target.is_symlink() {
-        eprintln!("{} {} {}", style::yellow("skip"), entry.file, style::dim("not a symlink"));
+        eprintln!("{} {}: {}", style::yellow("skip"), entry.file, style::dim("not a symlink"));
         return Ok(false);
     }
 
@@ -442,7 +442,7 @@ pub fn unlink_file(
                 .arg(&rel_path)
                 .current_dir(root)
                 .status();
-            eprintln!("  {} {} {}", style::check(), style::dim("restored from git"), entry.file);
+            eprintln!("  {} {} {}", style::check(), style::dim("restored"), style::dim(&format!("{} (from git)", entry.file)));
         }
     }
 

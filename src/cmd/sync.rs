@@ -75,7 +75,7 @@ pub fn run(message: Option<&str>, dry_run: bool) -> anyhow::Result<()> {
         ensure!(status.success(), "git commit failed");
         eprintln!("{} {}", style::check(), style::green("committed"));
     } else {
-        eprintln!("{} no changes to commit", style::dim("-"));
+        eprintln!("{} {}", style::check(), style::dim("no changes to commit"));
     }
 
     if has_remote {
@@ -86,7 +86,7 @@ pub fn run(message: Option<&str>, dry_run: bool) -> anyhow::Result<()> {
         ensure!(status.success(), "git push failed");
         eprintln!("{} {}", style::check(), style::green("pushed"));
     } else {
-        eprintln!("{} no remote configured; skipping push", style::dim("-"));
+        eprintln!("{} {}", style::check(), style::dim("no remote configured, skipping push"));
     }
 
     Ok(())

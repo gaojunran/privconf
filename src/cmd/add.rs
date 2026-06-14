@@ -37,9 +37,9 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
             existing.match_remote = match_remote.clone();
         }
         if files.is_empty() {
-            eprintln!("{} project {}", style::dim("exists"), style::bold(&name));
+            eprintln!("{} {} {}", style::check(), style::bold(&name), style::dim("(already exists)"));
         } else {
-            eprintln!("{} files to {}", style::check(), style::bold(&name));
+            eprintln!("{} {} {} {}", style::check(), style::green("added"), style::dim(&format!("{} file(s) to", files.len())), style::bold(&name));
         }
     } else {
         let project_dir = crate::config::project_dir(&name);
@@ -59,13 +59,13 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
     for file in &files {
         let source = cwd.join(file);
         if !source.exists() {
-            eprintln!("{} {} {}", style::yellow("warn"), file, style::dim("does not exist, skipping"));
+            eprintln!("{} {}: {}", style::yellow("skip"), file, style::dim("does not exist"));
             continue;
         }
         let dest = project_dir.join(file);
         if source.is_dir() {
             copy_dir_recursive(&source, &dest)?;
-            eprintln!("  {} {} {}", style::check(), style::dim("copied dir"), file);
+            eprintln!("  {} {} {}", style::check(), style::dim("copied"), style::dim(&format!("{file} (directory)")));
         } else {
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;

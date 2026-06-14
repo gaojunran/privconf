@@ -22,19 +22,19 @@ pub fn run() -> anyhow::Result<()> {
                 if is_symlink && linked {
                     println!("  {} {} {} {}", style::check(), file, style::arrow(), style::green("linked"));
                 } else if is_symlink {
-                    println!("  {} {} {} {}", style::check(), file, style::arrow(), style::yellow("linked"));
+                    println!("  {} {} {} {}", style::yellow("!"), file, style::arrow(), style::yellow("linked (other dir)"));
                 } else {
-                    println!("  {} {} {}", style::cross(), file, style::dim("not linked"));
+                    println!("  {} {} {} {}", style::cross(), file, style::arrow(), style::dim("not linked"));
                 }
             }
             for file in &p.ignored {
                 let ignored = state.linked.iter().any(|e| {
-                    e.project == p.name && e.file == *file && e.ignored
+                    e.project == p.name && e.file == *file && e.ignored && e.target.starts_with(&cwd)
                 });
                 if ignored {
-                    println!("  {} {} {}", style::dim("-"), file, style::dim("ignored"));
+                    println!("  {} {} {} {}", style::dim("-"), file, style::arrow(), style::dim("ignored"));
                 } else {
-                    println!("  {} {} {}", style::cross(), file, style::dim("not ignored"));
+                    println!("  {} {} {} {}", style::cross(), file, style::arrow(), style::dim("not ignored"));
                 }
             }
         }

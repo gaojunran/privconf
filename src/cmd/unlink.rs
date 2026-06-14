@@ -29,7 +29,7 @@ pub fn run() -> anyhow::Result<()> {
                 Ok(true) => unlinked += 1,
                 Ok(false) => not_linked += 1,
                 Err(e) => {
-                    eprintln!("{} unignoring {}: {e}", style::cross(), entry.file);
+                    eprintln!("{} unignore {}: {e}", style::cross(), entry.file);
                     not_linked += 1;
                 }
             }
@@ -38,7 +38,7 @@ pub fn run() -> anyhow::Result<()> {
                 Ok(true) => unlinked += 1,
                 Ok(false) => not_linked += 1,
                 Err(e) => {
-                    eprintln!("{} unlinking {}: {e}", style::cross(), entry.file);
+                    eprintln!("{} unlink {}: {e}", style::cross(), entry.file);
                     not_linked += 1;
                 }
             }
