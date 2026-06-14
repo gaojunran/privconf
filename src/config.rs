@@ -236,6 +236,12 @@ pub fn git_add_to_exclude(git_root: &std::path::Path, rel_path: &std::path::Path
         .create(true)
         .append(true)
         .open(&exclude_file)?;
+    if exclude_file.exists() {
+        let content = std::fs::read_to_string(&exclude_file)?;
+        if !content.is_empty() && !content.ends_with('\n') {
+            writeln!(file)?;
+        }
+    }
     writeln!(file, "{rel_str}")?;
     Ok(())
 }
