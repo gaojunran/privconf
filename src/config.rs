@@ -382,7 +382,7 @@ pub fn link_file(
             ignored: false,
         });
         if !quiet {
-            eprintln!("  {} {} {}", style::check(), file, style::dim("linked (directory, excluded)"));
+            eprintln!("  {} {} {}", style::check(), style::green("linked"), style::dim(&format!("{file} (directory, excluded)")));
         }
         return Ok(true);
     }
