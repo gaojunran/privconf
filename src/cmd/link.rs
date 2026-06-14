@@ -38,7 +38,7 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
 
     for file in &project.ignored {
         let already = state.linked.iter().any(|e| {
-            e.project == project.name && e.file == *file && e.ignored
+            e.project == project.name && e.file == *file && e.ignored && e.target.starts_with(&cwd)
         });
         if already {
             if let Some(root) = git_root.as_deref() {
