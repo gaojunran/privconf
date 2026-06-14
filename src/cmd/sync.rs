@@ -15,10 +15,10 @@ pub fn run(message: Option<&str>, dry_run: bool) -> anyhow::Result<()> {
 
     if has_remote {
         if dry_run {
-            println!("would run: git pull");
+            println!("would run: git pull --rebase origin main");
         } else {
             let output = std::process::Command::new("git")
-                .args(["pull", "--rebase"])
+                .args(["pull", "--rebase", "origin", "main"])
                 .current_dir(&store)
                 .output()?;
             if !output.status.success() {
@@ -78,7 +78,7 @@ pub fn run(message: Option<&str>, dry_run: bool) -> anyhow::Result<()> {
 
     if has_remote {
         let status = std::process::Command::new("git")
-            .args(["push"])
+            .args(["push", "origin", "main"])
             .current_dir(&store)
             .status()?;
         ensure!(status.success(), "git push failed");

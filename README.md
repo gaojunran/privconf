@@ -157,6 +157,15 @@ privconf correctly handles git worktrees by writing to the shared `info/exclude`
 
 ## Changelog
 
+### v0.8.0
+
+- **Bug fix**: `sync` now uses `origin main` explicitly for pull/push, no longer requires tracking branch to be set
+- **`init` default branch**: `git init -b main` ensures consistent branch name
+
+### v0.7.0
+
+- **`.gitignore` in store**: `state.toml` is now excluded from git tracking (machine-specific, not meant to sync)
+
 ### v0.6.0
 
 - **`.gitignore` in store**: `state.toml` is now excluded from git tracking (machine-specific, not meant to sync)

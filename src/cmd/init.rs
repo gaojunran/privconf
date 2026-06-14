@@ -49,7 +49,7 @@ pub fn run(remote: Option<&str>) -> anyhow::Result<()> {
         crate::config::save_state(&state)?;
 
         let status = std::process::Command::new("git")
-            .arg("init")
+            .args(["init", "-b", "main"])
             .current_dir(&store)
             .status()?;
         ensure!(status.success(), "git init failed");
