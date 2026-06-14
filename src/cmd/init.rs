@@ -23,6 +23,10 @@ pub fn run(remote: Option<&str>) -> anyhow::Result<()> {
             std::fs::create_dir_all(&projects)?;
         }
 
+        if !store.join(".gitignore").exists() {
+            std::fs::write(store.join(".gitignore"), "state.toml\n")?;
+        }
+
         if !store.join(crate::config::CONFIG_FILE_NAME).exists() {
             let config = crate::config::Config { project: vec![] };
             crate::config::save_config(&config)?;
@@ -35,6 +39,8 @@ pub fn run(remote: Option<&str>) -> anyhow::Result<()> {
         println!("initialized privconf store from {url}");
     } else {
         std::fs::create_dir_all(store.join("projects"))?;
+
+        std::fs::write(store.join(".gitignore"), "state.toml\n")?;
 
         let config = crate::config::Config { project: vec![] };
         crate::config::save_config(&config)?;

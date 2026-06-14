@@ -82,6 +82,8 @@ fn test_init_creates_store() {
     assert!(store.join("state.toml").exists());
     assert!(store.join("projects").exists());
     assert!(store.join(".git").exists());
+    assert!(store.join(".gitignore").exists());
+    assert!(fs::read_to_string(store.join(".gitignore")).unwrap().contains("state.toml"));
 }
 
 #[test]

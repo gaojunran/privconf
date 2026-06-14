@@ -159,6 +159,7 @@ privconf correctly handles git worktrees by writing to the shared `info/exclude`
 
 ### v0.6.0
 
+- **`.gitignore` in store**: `state.toml` is now excluded from git tracking (machine-specific, not meant to sync)
 - **Bug fix**: `.git/info/exclude` entries now always start on a new line (previously could be appended to the last existing line)
 - **Bug fix**: `init` now sets `user.name`/`user.email` in the store repo, fixing CI environments where git identity is not configured
 - **`init` auto-commits**: initial `config.toml` and `state.toml` are committed automatically
