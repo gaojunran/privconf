@@ -230,19 +230,22 @@ pub fn git_add_to_exclude(git_root: &std::path::Path, rel_path: &std::path::Path
         if content.lines().any(|line| line.trim() == rel_str) {
             return Ok(());
         }
-    }
-    use std::io::Write;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&exclude_file)?;
-    if exclude_file.exists() {
-        let content = std::fs::read_to_string(&exclude_file)?;
-        if !content.is_empty() && !content.ends_with('\n') {
-            writeln!(file)?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&exclude_file)?;
+        if !content.ends_with('\n') {
+            write!(file, "\n")?;
         }
+        writeln!(file, "{rel_str}")?;
+    } else {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&exclude_file)?;
+        writeln!(file, "{rel_str}")?;
     }
-    writeln!(file, "{rel_str}")?;
     Ok(())
 }
 
