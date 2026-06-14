@@ -157,6 +157,10 @@ privconf correctly handles git worktrees by writing to the shared `info/exclude`
 
 ## Changelog
 
+### v0.9.0
+
+- **Bug fix**: `add .local/` (trailing slash) no longer causes "No such file or directory" — trailing slashes are now stripped from file arguments in `add`, `ignore`, and `remove`
+
 ### v0.8.0
 
 - **Bug fix**: `sync` now uses `origin main` explicitly for pull/push, no longer requires tracking branch to be set

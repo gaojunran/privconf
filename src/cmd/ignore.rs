@@ -1,6 +1,8 @@
 pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<()> {
     crate::config::ensure_initialized()?;
 
+    let files: Vec<String> = files.iter().map(|f| f.trim_end_matches('/').to_string()).collect();
+
     let cwd = std::env::current_dir()?;
     let git_root = crate::config::git_root(&cwd).ok();
 

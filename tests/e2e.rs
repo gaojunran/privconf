@@ -1483,3 +1483,19 @@ fn crate_test_backup_path(path: &std::path::Path) -> std::path::PathBuf {
         None => std::path::PathBuf::from(new_name),
     }
 }
+
+#[test]
+fn test_add_directory_with_trailing_slash() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("scripts")).unwrap();
+    fs::write(repo.join("scripts/deploy.sh"), "#!/bin/sh\necho deploy").unwrap();
+
+    env.privconf(&["add", "scripts/"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(repo.join("scripts").is_symlink());
+}

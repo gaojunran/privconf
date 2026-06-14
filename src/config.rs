@@ -54,18 +54,17 @@ impl ProjectEntry {
     pub fn matches_dir(&self, dir: &std::path::Path) -> bool {
         if let Some(pattern) = &self.match_path {
             let expanded = shellexpand::tilde(pattern);
-            if let Ok(glob) = glob::Pattern::new(&expanded) {
-                if glob.matches_path(dir) {
-                    return true;
-                }
+            if let Ok(glob) = glob::Pattern::new(&expanded)
+                && glob.matches_path(dir)
+            {
+                return true;
             }
         }
-        if let Some(remote) = &self.match_remote {
-            if let Ok(git_remote) = get_git_remote(dir) {
-                if git_remote.contains(remote) {
-                    return true;
-                }
-            }
+        if let Some(remote) = &self.match_remote
+            && let Ok(git_remote) = get_git_remote(dir)
+            && git_remote.contains(remote)
+        {
+            return true;
         }
         false
     }
@@ -98,7 +97,7 @@ pub fn get_git_remote_from_root(git_root: &std::path::Path) -> Option<String> {
 pub fn derive_project_name(git_root: &std::path::Path) -> Option<String> {
     let remote = get_git_remote_from_root(git_root)?;
     let url = remote.trim_end_matches(".git");
-    let name = url.rsplit('/').next().unwrap_or(&url);
+    let name = url.rsplit('/').next().unwrap_or(url);
     Some(name.to_string())
 }
 
@@ -158,12 +157,12 @@ pub fn save_state(state: &State) -> anyhow::Result<()> {
 
 pub fn find_project_for_dir<'a>(config: &'a Config, dir: &std::path::Path) -> Option<&'a ProjectEntry> {
     let git_remote = get_git_remote(dir).ok();
-    if let Some(ref remote) = git_remote {
-        if let Some(p) = config.project.iter().find(|p| {
+    if let Some(ref remote) = git_remote
+        && let Some(p) = config.project.iter().find(|p| {
             p.match_remote.as_ref().is_some_and(|r| remote.contains(r))
-        }) {
-            return Some(p);
-        }
+        })
+    {
+        return Some(p);
     }
     config.project.iter().find(|p| {
         p.match_path.as_ref().is_some_and(|pattern| {
@@ -235,7 +234,7 @@ pub fn git_add_to_exclude(git_root: &std::path::Path, rel_path: &std::path::Path
             .append(true)
             .open(&exclude_file)?;
         if !content.ends_with('\n') {
-            write!(file, "\n")?;
+            writeln!(file)?;
         }
         writeln!(file, "{rel_str}")?;
     } else {
@@ -317,12 +316,11 @@ pub fn link_file(
     let is_dir = source.is_dir();
 
     if target.exists() {
-        if target.is_symlink() {
-            if let Ok(link_target) = target.read_link() {
-                if link_target == source {
-                    return Ok(false);
-                }
-            }
+        if target.is_symlink()
+            && let Ok(link_target) = target.read_link()
+            && link_target == source
+        {
+            return Ok(false);
         }
         if backup {
             let bak = backup_path(&target);
