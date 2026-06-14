@@ -1,3 +1,4 @@
+use crate::style;
 use std::path::PathBuf;
 
 use anyhow::{Context, bail, ensure};
@@ -307,7 +308,7 @@ pub fn link_file(
     let source = project_dir(project_name).join(file);
     if !source.exists() {
         if !quiet {
-            eprintln!("  skip {file}: source not found in store");
+            eprintln!("{} {} {}", style::yellow("skip"), file, style::dim("source not found in store"));
         }
         return Ok(false);
     }
@@ -328,13 +329,13 @@ pub fn link_file(
                 std::fs::rename(&target, &bak)
                     .with_context(|| format!("backing up directory {}", target.display()))?;
                 if !quiet {
-                    eprintln!("  backed up {} -> {}", target.display(), bak.display());
+                    eprintln!("  {} {} {} {}", style::check(), style::dim("backed up"), target.display(), style::dim(&format!("-> {}", bak.display())));
                 }
             } else if target.is_file() || target.is_symlink() {
                 std::fs::rename(&target, &bak)
                     .with_context(|| format!("backing up {}", target.display()))?;
                 if !quiet {
-                    eprintln!("  backed up {} -> {}", target.display(), bak.display());
+                    eprintln!("  {} {} {} {}", style::check(), style::dim("backed up"), target.display(), style::dim(&format!("-> {}", bak.display())));
                 }
             }
             if let Some(root) = git_root {
@@ -372,7 +373,7 @@ pub fn link_file(
             ignored: false,
         });
         if !quiet {
-            eprintln!("  linked {file} (directory, excluded)");
+            eprintln!("  {} {} {}", style::check(), file, style::dim("linked (directory, excluded)"));
         }
         return Ok(true);
     }
@@ -398,7 +399,7 @@ pub fn link_file(
     });
 
     if !quiet {
-        eprintln!("  linked {file}{}", if tracked { " (skip-worktree)" } else { " (excluded)" });
+        eprintln!("  {} {} {}", style::check(), style::green("linked"), style::dim(&format!("{file}{}", if tracked { " (skip-worktree)" } else { " (excluded)" })));
     }
     Ok(true)
 }
@@ -410,7 +411,7 @@ pub fn unlink_file(
 ) -> anyhow::Result<bool> {
     let target = &entry.target;
     if !target.is_symlink() {
-        eprintln!("  skip {}: not a symlink", entry.file);
+        eprintln!("{} {} {}", style::yellow("skip"), entry.file, style::dim("not a symlink"));
         return Ok(false);
     }
 
@@ -422,7 +423,7 @@ pub fn unlink_file(
     let backup = backup_path(target);
     if backup.exists() {
         std::fs::rename(&backup, target)?;
-        eprintln!("  restored {} from backup", entry.file);
+        eprintln!("  {} {} {}", style::check(), style::dim("restored"), entry.file);
     } else if let Some(root) = git_root {
         let rel_path = PathBuf::from(&entry.file);
         if entry.skip_worktree {
@@ -432,7 +433,7 @@ pub fn unlink_file(
                 .arg(&rel_path)
                 .current_dir(root)
                 .status();
-            eprintln!("  restored {} from git", entry.file);
+            eprintln!("  {} {} {}", style::check(), style::dim("restored from git"), entry.file);
         }
     }
 
@@ -448,7 +449,7 @@ pub fn unlink_file(
     }
 
     state.linked.retain(|e| !(e.project == entry.project && e.file == entry.file));
-    eprintln!("  unlinked {}", entry.file);
+    eprintln!("  {} {} {}", style::check(), style::green("unlinked"), entry.file);
     Ok(true)
 }
 
@@ -480,7 +481,7 @@ pub fn ignore_file(
         ignored: true,
     });
 
-    eprintln!("  ignored {file}{}", if tracked { " (skip-worktree)" } else { " (excluded)" });
+    eprintln!("  {} {} {}", style::check(), style::dim("ignored"), style::dim(&format!("{file}{}", if tracked { " (skip-worktree)" } else { " (excluded)" })));
     Ok(true)
 }
 
@@ -499,6 +500,6 @@ pub fn unignore_file(
     }
 
     state.linked.retain(|e| !(e.project == entry.project && e.file == entry.file));
-    eprintln!("  unignored {}", entry.file);
+    eprintln!("  {} {} {}", style::check(), style::dim("unignored"), entry.file);
     Ok(true)
 }

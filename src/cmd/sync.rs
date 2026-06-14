@@ -1,3 +1,4 @@
+use crate::style;
 use anyhow::{ensure, bail};
 
 pub fn run(message: Option<&str>, dry_run: bool) -> anyhow::Result<()> {
@@ -15,7 +16,7 @@ pub fn run(message: Option<&str>, dry_run: bool) -> anyhow::Result<()> {
 
     if has_remote {
         if dry_run {
-            println!("would run: git pull --rebase origin main");
+            println!("{} git pull --rebase origin main", style::dim("would run"));
         } else {
             let output = std::process::Command::new("git")
                 .args(["pull", "--rebase", "origin", "main"])
@@ -28,6 +29,7 @@ pub fn run(message: Option<&str>, dry_run: bool) -> anyhow::Result<()> {
                 }
                 bail!("git pull failed: {}", stderr.trim());
             }
+            eprintln!("{} {}", style::check(), style::green("pulled"));
         }
     }
 
@@ -38,16 +40,16 @@ pub fn run(message: Option<&str>, dry_run: bool) -> anyhow::Result<()> {
             .output()?;
         let changed = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !changed.is_empty() {
-            println!("would stage and commit the following files:");
+            println!("{} stage and commit:", style::dim("would"));
             for line in changed.lines() {
                 println!("  {line}");
             }
-            println!("commit message: {commit_message}");
+            println!("{} {}", style::dim("message:"), commit_message);
         } else {
-            println!("no local changes to commit");
+            println!("{} no local changes to commit", style::dim("would"));
         }
         if has_remote {
-            println!("would run: git push");
+            println!("{} git push origin main", style::dim("would run"));
         }
         return Ok(());
     }
@@ -71,9 +73,9 @@ pub fn run(message: Option<&str>, dry_run: bool) -> anyhow::Result<()> {
             .current_dir(&store)
             .status()?;
         ensure!(status.success(), "git commit failed");
-        eprintln!("committed changes");
+        eprintln!("{} {}", style::check(), style::green("committed"));
     } else {
-        eprintln!("no changes to commit");
+        eprintln!("{} no changes to commit", style::dim("-"));
     }
 
     if has_remote {
@@ -82,9 +84,9 @@ pub fn run(message: Option<&str>, dry_run: bool) -> anyhow::Result<()> {
             .current_dir(&store)
             .status()?;
         ensure!(status.success(), "git push failed");
-        eprintln!("pushed to remote");
+        eprintln!("{} {}", style::check(), style::green("pushed"));
     } else {
-        eprintln!("no remote configured; skipping push");
+        eprintln!("{} no remote configured; skipping push", style::dim("-"));
     }
 
     Ok(())

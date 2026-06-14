@@ -157,6 +157,10 @@ privconf correctly handles git worktrees by writing to the shared `info/exclude`
 
 ## Changelog
 
+### v0.10.0
+
+- **Colored CLI output**: all commands now use colored status indicators (✓ green, ✗ red, dim details) for clearer visual feedback
+
 ### v0.9.0
 
 - **Bug fix**: `add .local/` (trailing slash) no longer causes "No such file or directory" — trailing slashes are now stripped from file arguments in `add`, `ignore`, and `remove`

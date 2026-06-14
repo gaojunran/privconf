@@ -1,3 +1,4 @@
+use crate::style;
 use anyhow::Context;
 
 use std::os::unix::fs::PermissionsExt;
@@ -36,9 +37,9 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
             existing.match_remote = match_remote.clone();
         }
         if files.is_empty() {
-            eprintln!("project '{name}' already exists");
+            eprintln!("{} project {}", style::dim("exists"), style::bold(&name));
         } else {
-            eprintln!("added files to existing project '{name}'");
+            eprintln!("{} files to {}", style::check(), style::bold(&name));
         }
     } else {
         let project_dir = crate::config::project_dir(&name);
@@ -51,27 +52,27 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
             files: files.clone(),
             ignored: vec![],
         });
-        eprintln!("created project '{name}'");
+        eprintln!("{} project {}", style::check(), style::bold(&name));
     }
 
     let project_dir = crate::config::project_dir(&name);
     for file in &files {
         let source = cwd.join(file);
         if !source.exists() {
-            eprintln!("  warning: {} does not exist, skipping copy", file);
+            eprintln!("{} {} {}", style::yellow("warn"), file, style::dim("does not exist, skipping"));
             continue;
         }
         let dest = project_dir.join(file);
         if source.is_dir() {
             copy_dir_recursive(&source, &dest)?;
-            eprintln!("  copied directory {} to store", file);
+            eprintln!("  {} {} {}", style::check(), style::dim("copied dir"), file);
         } else {
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;
             }
             copy_file_preserving(&source, &dest)
                 .with_context(|| format!("copying {} to store", file))?;
-            eprintln!("  copied {} to store", file);
+            eprintln!("  {} {} {}", style::check(), style::dim("copied"), file);
         }
     }
 
@@ -87,7 +88,7 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
     crate::config::save_state(&state)?;
 
     if linked_count > 0 {
-        eprintln!("linked {linked_count} file(s)");
+        eprintln!("{} {} {}", style::check(), style::green("linked"), style::dim(&format!("{linked_count} file(s)")));
     }
     Ok(())
 }

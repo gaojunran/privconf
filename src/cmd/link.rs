@@ -1,3 +1,4 @@
+use crate::style;
 use anyhow::ensure;
 
 pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
@@ -28,7 +29,7 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
             Ok(false) => skipped_count += 1,
             Err(e) => {
                 if !quiet {
-                    eprintln!("  error linking {file}: {e}");
+                    eprintln!("{} linking {file}: {e}", style::cross());
                 }
                 skipped_count += 1;
             }
@@ -48,7 +49,7 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
             Ok(false) => skipped_count += 1,
             Err(e) => {
                 if !quiet {
-                    eprintln!("  error ignoring {file}: {e}");
+                    eprintln!("{} ignoring {file}: {e}", style::cross());
                 }
                 skipped_count += 1;
             }
@@ -57,7 +58,19 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
 
     crate::config::save_state(&state)?;
     if !quiet {
-        eprintln!("linked {linked_count} file(s), ignored {ignored_count}, skipped {skipped_count}");
+        let mut parts = Vec::new();
+        if linked_count > 0 {
+            parts.push(format!("{} linked", style::green(&linked_count.to_string())));
+        }
+        if ignored_count > 0 {
+            parts.push(format!("{} ignored", style::dim(&ignored_count.to_string())));
+        }
+        if skipped_count > 0 {
+            parts.push(format!("{} skipped", style::dim(&skipped_count.to_string())));
+        }
+        if !parts.is_empty() {
+            eprintln!("{} {}", style::check(), parts.join(", "));
+        }
     }
     Ok(())
 }

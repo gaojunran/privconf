@@ -185,7 +185,7 @@ fn test_add_nonexistent_file_warns() {
         .assert_success();
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("warning"));
+    assert!(stderr.contains("warn"));
 }
 
 #[test]
@@ -1454,7 +1454,7 @@ fn test_sync_dry_run() {
 
     let output = env.privconf(&["sync", "--dry-run"]).assert_success();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("would stage and commit"));
+    assert!(stdout.contains("stage and commit"));
 
     let store = env.store_dir();
     let log_before = env.git(&["log", "--oneline"], store).assert_success();

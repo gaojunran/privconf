@@ -1,3 +1,4 @@
+use crate::style;
 use anyhow::bail;
 
 pub fn run() -> anyhow::Result<()> {
@@ -28,7 +29,7 @@ pub fn run() -> anyhow::Result<()> {
                 Ok(true) => unlinked += 1,
                 Ok(false) => not_linked += 1,
                 Err(e) => {
-                    eprintln!("  error unignoring {}: {e}", entry.file);
+                    eprintln!("{} unignoring {}: {e}", style::cross(), entry.file);
                     not_linked += 1;
                 }
             }
@@ -37,7 +38,7 @@ pub fn run() -> anyhow::Result<()> {
                 Ok(true) => unlinked += 1,
                 Ok(false) => not_linked += 1,
                 Err(e) => {
-                    eprintln!("  error unlinking {}: {e}", entry.file);
+                    eprintln!("{} unlinking {}: {e}", style::cross(), entry.file);
                     not_linked += 1;
                 }
             }
@@ -45,6 +46,6 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     crate::config::save_state(&state)?;
-    eprintln!("unlinked {unlinked} file(s), {not_linked} not symlinks");
+    eprintln!("{} {} {}", style::check(), style::green("unlinked"), style::dim(&format!("{unlinked} file(s), {not_linked} not symlinks")));
     Ok(())
 }

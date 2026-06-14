@@ -1,10 +1,12 @@
+use crate::style;
+
 pub fn run() -> anyhow::Result<()> {
     crate::config::ensure_initialized()?;
 
     let config = crate::config::load_config()?;
 
     if config.project.is_empty() {
-        println!("no projects");
+        println!("{} {}", style::dim("no projects found"), style::cross());
         return Ok(());
     }
 
@@ -13,15 +15,15 @@ pub fn run() -> anyhow::Result<()> {
         let ignored_count = p.ignored.len();
         let mut details = Vec::new();
         if file_count > 0 {
-            details.push(format!("{file_count} file(s)"));
+            details.push(style::green(&format!("{file_count} file(s)")));
         }
         if ignored_count > 0 {
-            details.push(format!("{ignored_count} ignored"));
+            details.push(style::dim(&format!("{ignored_count} ignored")));
         }
-        if details.is_empty() {
-            println!("{}", p.name);
+        if !details.is_empty() {
+            println!("{} {}", style::bold(&p.name), details.join(", "));
         } else {
-            println!("{} ({})", p.name, details.join(", "));
+            println!("{} {}", style::dim("-"), style::bold(&p.name));
         }
     }
 

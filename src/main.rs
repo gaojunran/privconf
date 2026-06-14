@@ -1,5 +1,6 @@
 mod cmd;
 mod config;
+mod style;
 
 use clap::Parser;
 

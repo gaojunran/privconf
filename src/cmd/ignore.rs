@@ -1,3 +1,5 @@
+use crate::style;
+
 pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<()> {
     crate::config::ensure_initialized()?;
 
@@ -24,7 +26,7 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
                 existing.ignored.push(file.clone());
             }
         }
-        eprintln!("added files to ignored list of project '{name}'");
+        eprintln!("{} files to {} ignored list", style::check(), style::bold(&name));
     } else {
         let project_dir = crate::config::project_dir(&name);
         std::fs::create_dir_all(&project_dir)?;
@@ -40,7 +42,7 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
             files: vec![],
             ignored: files.clone(),
         });
-        eprintln!("created project '{name}' with ignored files");
+        eprintln!("{} project {} with ignored files", style::check(), style::bold(&name));
     }
 
     crate::config::save_config(&config)?;

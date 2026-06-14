@@ -1,3 +1,4 @@
+use crate::style;
 use anyhow::Context;
 
 pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<()> {
@@ -42,7 +43,7 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
                 let backup = crate::config::backup_path(&target);
                 if backup.exists() {
                     std::fs::rename(&backup, &target)?;
-                    eprintln!("  restored {} from backup", file);
+                    eprintln!("  {} {} {}", style::check(), style::dim("restored"), file);
                 }
                 if let Some(root) = git_root.as_ref() {
                     let rel_path = std::path::PathBuf::from(file);
@@ -62,7 +63,7 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
             std::fs::remove_file(&store_path)
                 .with_context(|| format!("removing {} from store", file))?;
         }
-        eprintln!("  removed {file} from store");
+        eprintln!("  {} {} {}", style::check(), style::dim("removed from store"), file);
 
         project.files.retain(|f| f != file);
         project.ignored.retain(|f| f != file);
@@ -74,12 +75,12 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
             std::fs::remove_dir_all(&project_dir)?;
         }
         config.project.retain(|p| p.name != name);
-        eprintln!("  removed empty project '{name}'");
+        eprintln!("  {} {}", style::dim("removed empty project"), style::bold(&name));
     }
 
     crate::config::save_config(&config)?;
     crate::config::save_state(&state)?;
 
-    eprintln!("removed {removed_count} file(s)");
+    eprintln!("{} {} {}", style::check(), style::green("removed"), style::dim(&format!("{removed_count} file(s)")));
     Ok(())
 }
