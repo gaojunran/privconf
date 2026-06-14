@@ -157,11 +157,12 @@ privconf correctly handles git worktrees by writing to the shared `info/exclude`
 
 ## Changelog
 
-### v0.10.0
+### v0.11.0
 
+- **Bug fix**: `link` now re-applies git exclude/skip-worktree for already-linked files and ignored files, fixing the case where a fresh machine has symlinks but git visibility is lost
 - **Colored CLI output**: all commands now use colored status indicators (✓ green, ✗ red, dim details) for clearer visual feedback
 
-### v0.9.0
+### v0.10.0
 
 - **Bug fix**: `add .local/` (trailing slash) no longer causes "No such file or directory" — trailing slashes are now stripped from file arguments in `add`, `ignore`, and `remove`
 

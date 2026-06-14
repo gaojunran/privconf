@@ -321,6 +321,15 @@ pub fn link_file(
             && let Ok(link_target) = target.read_link()
             && link_target == source
         {
+            if let Some(root) = git_root {
+                let rel_path = PathBuf::from(file);
+                let tracked = git_is_tracked(root, &rel_path);
+                if tracked {
+                    git_set_skip_worktree(root, &rel_path).ok();
+                } else {
+                    let _ = git_add_to_exclude(root, &rel_path);
+                }
+            }
             return Ok(false);
         }
         if backup {

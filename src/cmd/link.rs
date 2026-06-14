@@ -41,17 +41,26 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
             e.project == project.name && e.file == *file && e.ignored
         });
         if already {
-            skipped_count += 1;
-            continue;
-        }
-        match crate::config::ignore_file(&project.name, file, &cwd, git_root.as_deref(), &mut state) {
-            Ok(true) => ignored_count += 1,
-            Ok(false) => skipped_count += 1,
-            Err(e) => {
-                if !quiet {
-                    eprintln!("{} ignoring {file}: {e}", style::cross());
+            if let Some(root) = git_root.as_deref() {
+                let rel_path = std::path::PathBuf::from(file);
+                let tracked = crate::config::git_is_tracked(root, &rel_path);
+                if tracked {
+                    crate::config::git_set_skip_worktree(root, &rel_path).ok();
+                } else {
+                    crate::config::git_add_to_exclude(root, &rel_path).ok();
                 }
-                skipped_count += 1;
+            }
+            skipped_count += 1;
+        } else {
+            match crate::config::ignore_file(&project.name, file, &cwd, git_root.as_deref(), &mut state) {
+                Ok(true) => ignored_count += 1,
+                Ok(false) => skipped_count += 1,
+                Err(e) => {
+                    if !quiet {
+                        eprintln!("{} ignoring {file}: {e}", style::cross());
+                    }
+                    skipped_count += 1;
+                }
             }
         }
     }

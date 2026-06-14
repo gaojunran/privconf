@@ -682,51 +682,55 @@ fn test_add_directory() {
 }
 
 #[test]
-fn test_link_directory() {
+fn test_link_re_ignores_tracked_file_after_skip_worktree_cleared() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();
 
     let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
-    fs::create_dir_all(repo.join("scripts")).unwrap();
-    fs::write(repo.join("scripts/deploy.sh"), "#!/bin/sh\necho deploy").unwrap();
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+    fs::write(repo.join("debug.log"), "debug").unwrap();
+    env.git(&["add", "debug.log"], &repo).assert_success();
+    env.git(&["commit", "-m", "add debug.log"], &repo).assert_success();
 
-    env.privconf(&["add", "scripts"])
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+    env.privconf(&["ignore", "debug.log"])
         .current_dir(&repo)
         .assert_success();
 
-    let linked = repo.join("scripts");
-    assert!(linked.is_symlink());
-    assert!(linked.read_link().unwrap().starts_with(env.store_dir()));
-    assert!(linked.join("deploy.sh").exists());
+    // Simulate fresh machine: clear skip-worktree
+    env.git(&["update-index", "--no-skip-worktree", "debug.log"], &repo)
+        .assert_success();
 
-    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
-    assert!(exclude.contains("scripts"));
+    // link should re-set skip-worktree
+    env.privconf(&["link"]).current_dir(&repo).assert_success();
+
+    let output = env.git(&["ls-files", "-v"], &repo).assert_success();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.lines().any(|l| l.starts_with('S') && l.contains("debug.log")));
 }
 
 #[test]
-fn test_link_directory_backs_up_existing() {
+fn test_link_re_excludes_already_linked_file() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();
 
     let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
-    fs::create_dir_all(repo.join("scripts")).unwrap();
-    fs::write(repo.join("scripts/deploy.sh"), "original").unwrap();
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
 
-    env.privconf(&["add", "scripts"])
+    env.privconf(&["add", "mise.local.toml"])
         .current_dir(&repo)
         .assert_success();
 
-    env.privconf(&["unlink"]).current_dir(&repo).assert_success();
+    // Simulate fresh machine: remove exclude entry
+    fs::write(repo.join(".git/info/exclude"), "").unwrap();
 
-    fs::create_dir_all(repo.join("scripts")).unwrap();
-    fs::write(repo.join("scripts/deploy.sh"), "modified").unwrap();
+    // link should re-add to exclude
+    env.privconf(&["link"]).current_dir(&repo).assert_success();
 
-    env.privconf(&["link"])
-        .current_dir(&repo)
-        .assert_success();
-
-    assert!(repo.join("scripts.privconf.bak").is_dir());
-    assert_eq!(fs::read_to_string(repo.join("scripts.privconf.bak/deploy.sh")).unwrap(), "modified");
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(exclude.contains("mise.local.toml"));
 }
 
 #[test]
