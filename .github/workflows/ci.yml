@@ -33,10 +33,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             artifact: privconf-x86_64-linux
-          - target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             artifact: privconf-aarch64-linux
           - target: x86_64-apple-darwin
@@ -47,6 +47,16 @@ jobs:
             artifact: privconf-aarch64-macos
     steps:
       - uses: actions/checkout@v4
+
+      # Linux musl 静态编译：用 zig 作为 linker，产出与 glibc 无关的静态二进制
+      - name: Install Zig
+        if: endsWith(matrix.target, '-linux-musl')
+        uses: mlugg/setup-zig@v2
+
+      - name: Install cargo-zigbuild
+        if: endsWith(matrix.target, '-linux-musl')
+        run: pipx install cargo-zigbuild
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -54,16 +64,19 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          if [[ "${{ matrix.target }}" == *-linux-musl ]]; then
+            cargo zigbuild --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Verify static linkage
+        if: endsWith(matrix.target, '-linux-musl')
+        run: |
+          file target/${{ matrix.target }}/release/privconf
+          ldd target/${{ matrix.target }}/release/privconf || true
 
       - name: Package
         run: |
