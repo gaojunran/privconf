@@ -17,6 +17,9 @@ enum Commands {
     Init {
         /// Remote URL to clone (if omitted, creates a new store)
         remote: Option<String>,
+        /// Skip git init — use when embedding privconf inside an existing git repo (e.g. chezmoi)
+        #[arg(long)]
+        no_git: bool,
     },
     /// Add files from current project to privconf and create symlinks
     Add {
@@ -77,7 +80,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init { remote } => cmd::init::run(remote.as_deref()),
+        Commands::Init { remote, no_git } => cmd::init::run(remote.as_deref(), no_git),
         Commands::Add { project, files } => cmd::add::run(project, files),
         Commands::Remove { project, files } => cmd::remove::run(project, files),
         Commands::Link { quiet, sync } => cmd::link::run(quiet, sync),

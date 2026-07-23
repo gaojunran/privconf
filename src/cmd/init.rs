@@ -1,11 +1,13 @@
 use crate::style;
 use anyhow::{Context, ensure};
 
-pub fn run(remote: Option<&str>) -> anyhow::Result<()> {
+pub fn run(remote: Option<&str>, no_git: bool) -> anyhow::Result<()> {
     let store = crate::config::store_dir();
     ensure!(!store.join(crate::config::CONFIG_FILE_NAME).exists(), "privconf already initialized at {}", store.display());
 
     if let Some(url) = remote {
+        ensure!(!no_git, "--no-git cannot be used with a remote URL (cloning implies git)");
+
         let tmp = tempfile::tempdir()
             .with_context(|| "creating temp directory for clone")?;
         let tmp_path = tmp.path().join("store");
@@ -48,6 +50,11 @@ pub fn run(remote: Option<&str>) -> anyhow::Result<()> {
 
         let state = crate::config::State::default();
         crate::config::save_state(&state)?;
+
+        if no_git {
+            println!("{} {}", style::check(), style::green(&format!("initialized privconf store at {} (no git)", store.display())));
+            return Ok(());
+        }
 
         let status = std::process::Command::new("git")
             .args(["init", "-b", "main"])

@@ -1503,3 +1503,41 @@ fn test_add_directory_with_trailing_slash() {
 
     assert!(repo.join("scripts").is_symlink());
 }
+
+#[test]
+fn test_init_no_git() {
+    let env = TestEnv::new();
+    env.privconf(&["init", "--no-git"]).assert_success();
+
+    let store = env.store_dir();
+    assert!(store.exists());
+    assert!(store.join("config.toml").exists());
+    assert!(store.join("state.toml").exists());
+    assert!(store.join("projects").exists());
+    assert!(!store.join(".git").exists(), ".git should not exist with --no-git");
+    assert!(store.join(".gitignore").exists());
+    assert!(fs::read_to_string(store.join(".gitignore")).unwrap().contains("state.toml"));
+}
+
+#[test]
+fn test_init_no_git_works_with_add() {
+    let env = TestEnv::new();
+    env.privconf(&["init", "--no-git"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.local.toml"), "node = '22'").unwrap();
+
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(repo.join("mise.local.toml").is_symlink());
+    assert!(env.project_dir("myproj").join("mise.local.toml").exists());
+}
+
+#[test]
+fn test_init_no_git_with_remote_fails() {
+    let env = TestEnv::new();
+    env.privconf(&["init", "--no-git", "file:///some/remote"])
+        .assert_failure();
+}

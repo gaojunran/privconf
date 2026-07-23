@@ -66,7 +66,7 @@ cargo install --git https://github.com/gaojunran/privconf
 
 | Command | Description |
 |---------|-------------|
-| `init [<remote>]` | Initialize privconf store at `~/.privconf/`. With a remote URL, clone an existing store repo instead. |
+| `init [<remote>] [--no-git]` | Initialize privconf store at `~/.privconf/`. With a remote URL, clone an existing store repo instead. `--no-git` skips git init for embedding inside an existing repo. |
 | `add [-p <name>] [files...]` | Add files/dirs to store and create symlinks. Project name auto-detected from git remote. Omit files to create project only. |
 | `ignore [-p <name>] <files...>` | Ignore files in current project (add to `.git/info/exclude` or `skip-worktree`, no symlink, no store copy) |
 | `remove [-p <name>] <files...>` | Remove files from store, remove symlinks, restore originals |
@@ -122,6 +122,27 @@ target = "/home/user/Projects/myproj/mise.local.toml"
 skip_worktree = false
 ```
 
+## Embedding in a Dotfile Repo
+
+If you already manage your dotfiles with a tool like [chezmoi](https://chezmoi.io), you can embed the privconf store as a subdirectory instead of maintaining a separate git repo:
+
+```bash
+# Persist PRIVCONF_DIR to point inside your dotfile repo
+echo 'export PRIVCONF_DIR="$HOME/.local/share/chezmoi/dot_config/privconf"' >> ~/.bashrc
+source ~/.bashrc
+
+# Initialize without git (the outer repo handles version control)
+cd "$PRIVCONF_DIR" && privconf init --no-git
+
+# Add config files from your projects
+cd ~/Projects/myproj && privconf add mise.local.toml .env
+
+# Commit and push via your dotfile repo
+cd "$HOME/.local/share/chezmoi" && git add -A && git commit -m "add privconf" && git push
+```
+
+`--no-git` skips `git init` and the initial commit, but still creates `.gitignore` so that `state.toml` (machine-specific) is excluded from the outer repo.
+
 ## `add` vs `ignore`
 
 - **`add`** — copies the file to the store, creates a symlink, and hides it from git. The file is synced across devices via the store repo.
@@ -156,6 +177,10 @@ skip_worktree = false
 privconf correctly handles git worktrees by writing to the shared `info/exclude` (resolved via `git rev-parse --git-common-dir`), not the worktree-specific git directory.
 
 ## Changelog
+
+### v0.13.0
+
+- **`init --no-git`**: skip `git init` for embedding the privconf store inside an existing git repo (e.g. chezmoi). `.gitignore` is still created so `state.toml` stays excluded from the outer repo.
 
 ### v0.12.0
 
