@@ -176,7 +176,24 @@ cd "$HOME/.local/share/chezmoi" && git add -A && git commit -m "add privconf" &&
 
 privconf correctly handles git worktrees by writing to the shared `info/exclude` (resolved via `git rev-parse --git-common-dir`), not the worktree-specific git directory.
 
+## Jujutsu (jj) Limitations
+
+privconf relies on `git update-index --skip-worktree` to hide local changes to **tracked** files (so replacing a tracked file with a symlink stays invisible to `git status`). [Jujutsu (jj)](https://github.com/jj-vcs/jj) does not implement the skip-worktree bit — its working copy is itself a commit, with no Git index layer — so jj will still report a tracked file replaced by a symlink as a type change (`F → L`), even though `git status` is clean in a colocated repo.
+
+What works and what doesn't under jj:
+
+| File type | `privconf add` / `ignore` | `git status` | `jj status` |
+|-----------|---------------------------|--------------|-------------|
+| **Untracked** (not in git) | writes `.git/info/exclude` | clean | clean (jj respects `info/exclude`) |
+| **Tracked** (committed) | sets `skip-worktree` | clean | **dirty** (jj ignores skip-worktree) |
+
+For tracked files under jj, there is no way for privconf to make the symlink replacement invisible. The jj-native approach is to keep local overrides in a separate private commit (merged into your working branch) and use [`git.private-commits`](https://docs.jj-vcs.dev/latest/config/#gitprivate-commits) to prevent pushing it. See the [jj FAQ](https://docs.jj-vcs.dev/latest/FAQ/#how-can-i-avoid-committing-my-local-only-changes-to-tracked-files) for details.
+
 ## Changelog
+
+### v0.14.0
+
+- **Bug fix**: `add`/`ignore`/`unlink`/`remove` now compute git-root-relative paths correctly when run from a subdirectory of the repository. Previously, git commands (`ls-files`, `update-index`, `info/exclude`) received cwd-relative paths, so tracked files in subdirectories did not get `skip-worktree` set and untracked files got the wrong exclude entry, leaving `git status` dirty.
 
 ### v0.13.0
 

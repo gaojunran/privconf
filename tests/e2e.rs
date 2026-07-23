@@ -624,6 +624,130 @@ fn test_link_subdirectory_file() {
 }
 
 #[test]
+fn test_add_tracked_file_from_subdirectory_sets_skip_worktree() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("sub")).unwrap();
+    fs::write(repo.join("sub/config.override.toml"), "key = 'value'").unwrap();
+    env.git(&["add", "sub/config.override.toml"], &repo).assert_success();
+    env.git(&["commit", "-m", "add tracked sub config"], &repo).assert_success();
+
+    // Run add from the subdirectory, not from git root.
+    env.privconf(&["add", "config.override.toml"])
+        .current_dir(repo.join("sub"))
+        .assert_success();
+
+    // skip-worktree must be set on the git-root-relative path "sub/config.override.toml",
+    // not the cwd-relative "config.override.toml".
+    let ls_files = env.git(&["ls-files", "-v", "sub/config.override.toml"], &repo).assert_success();
+    assert!(
+        String::from_utf8_lossy(&ls_files.stdout).starts_with('S'),
+        "skip-worktree should be set on sub/config.override.toml"
+    );
+
+    let git_status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert!(
+        String::from_utf8_lossy(&git_status.stdout).trim().is_empty(),
+        "git status should be clean"
+    );
+}
+
+#[test]
+fn test_add_untracked_file_from_subdirectory_excludes() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("sub")).unwrap();
+    fs::write(repo.join("sub/mise.local.toml"), "node = '22'").unwrap();
+
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(repo.join("sub"))
+        .assert_success();
+
+    // info/exclude must contain the git-root-relative path "sub/mise.local.toml",
+    // not the cwd-relative "mise.local.toml".
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(
+        exclude.contains("sub/mise.local.toml"),
+        "exclude should contain git-root-relative path, got: {exclude}"
+    );
+    assert!(
+        !exclude.lines().any(|l| l.trim() == "mise.local.toml"),
+        "exclude should NOT contain cwd-relative bare path"
+    );
+
+    let git_status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert!(
+        String::from_utf8_lossy(&git_status.stdout).trim().is_empty(),
+        "git status should be clean"
+    );
+}
+
+#[test]
+fn test_ignore_tracked_file_from_subdirectory() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("sub")).unwrap();
+    fs::write(repo.join("sub/debug.log"), "debug").unwrap();
+    env.git(&["add", "sub/debug.log"], &repo).assert_success();
+    env.git(&["commit", "-m", "add debug log"], &repo).assert_success();
+
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(repo.join("sub"))
+        .assert_success();
+
+    let ls_files = env.git(&["ls-files", "-v", "sub/debug.log"], &repo).assert_success();
+    assert!(
+        String::from_utf8_lossy(&ls_files.stdout).starts_with('S'),
+        "skip-worktree should be set on sub/debug.log"
+    );
+
+    let git_status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert!(
+        String::from_utf8_lossy(&git_status.stdout).trim().is_empty(),
+        "git status should be clean"
+    );
+}
+
+#[test]
+fn test_unlink_tracked_file_from_subdirectory_restores() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("sub")).unwrap();
+    fs::write(repo.join("sub/config.override.toml"), "original").unwrap();
+    env.git(&["add", "sub/config.override.toml"], &repo).assert_success();
+    env.git(&["commit", "-m", "add config"], &repo).assert_success();
+
+    env.privconf(&["add", "config.override.toml"])
+        .current_dir(repo.join("sub"))
+        .assert_success();
+
+    env.privconf(&["unlink"])
+        .current_dir(repo.join("sub"))
+        .assert_success();
+
+    assert!(repo.join("sub/config.override.toml").exists());
+    assert_eq!(
+        fs::read_to_string(repo.join("sub/config.override.toml")).unwrap(),
+        "original"
+    );
+
+    let ls_files = env.git(&["ls-files", "-v", "sub/config.override.toml"], &repo).assert_success();
+    assert!(
+        String::from_utf8_lossy(&ls_files.stdout).starts_with('H'),
+        "skip-worktree should be cleared after unlink, got: {}",
+        String::from_utf8_lossy(&ls_files.stdout)
+    );
+}
+
+#[test]
 fn test_link_source_missing_in_store() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();

@@ -46,9 +46,10 @@ pub fn run(project_name: Option<String>, files: Vec<String>) -> anyhow::Result<(
                     eprintln!("  {} {} {}", style::check(), style::dim("restored"), file);
                 }
                 if let Some(root) = git_root.as_ref() {
-                    let rel_path = std::path::PathBuf::from(file);
+                    let rel_path = crate::config::rel_to_git_root(root, &target);
                     crate::config::git_remove_from_exclude(root, &rel_path).ok();
-                    let backup_rel = crate::config::backup_path(&std::path::PathBuf::from(file));
+                    let backup_abs = crate::config::backup_path(&target);
+                    let backup_rel = crate::config::rel_to_git_root(root, &backup_abs);
                     crate::config::git_remove_from_exclude(root, &backup_rel).ok();
                 }
                 removed_count += 1;

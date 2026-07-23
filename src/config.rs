@@ -296,6 +296,17 @@ pub fn backup_path(path: &std::path::Path) -> PathBuf {
     }
 }
 
+/// Convert an absolute path to a path relative to git_root.
+/// All git commands (ls-files, update-index, info/exclude) operate on
+/// git-root-relative paths, but `file` stored in config is relative to cwd
+/// which may be a subdirectory of git_root.
+pub fn rel_to_git_root(git_root: &std::path::Path, abs_path: &std::path::Path) -> PathBuf {
+    abs_path
+        .strip_prefix(git_root)
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|_| abs_path.to_path_buf())
+}
+
 pub fn link_file(
     project_name: &str,
     file: &str,
@@ -322,7 +333,7 @@ pub fn link_file(
             && link_target == source
         {
             if let Some(root) = git_root {
-                let rel_path = PathBuf::from(file);
+                let rel_path = rel_to_git_root(root, &target);
                 let tracked = git_is_tracked(root, &rel_path);
                 if tracked {
                     git_set_skip_worktree(root, &rel_path).ok();
@@ -348,7 +359,7 @@ pub fn link_file(
                 }
             }
             if let Some(root) = git_root {
-                let backup_rel = backup_path(&PathBuf::from(file));
+                let backup_rel = rel_to_git_root(root, &bak);
                 git_add_to_exclude(root, &backup_rel).ok();
             }
         } else {
@@ -371,7 +382,8 @@ pub fn link_file(
 
     if is_dir {
         if let Some(root) = git_root {
-            git_add_to_exclude(root, &PathBuf::from(file)).ok();
+            let rel_path = rel_to_git_root(root, &target);
+            git_add_to_exclude(root, &rel_path).ok();
         }
         state.linked.retain(|e| !(e.project == project_name && e.file == file));
         state.linked.push(LinkedEntry {
@@ -387,7 +399,9 @@ pub fn link_file(
         return Ok(true);
     }
 
-    let rel_path = PathBuf::from(file);
+    let rel_path = git_root
+        .map(|root| rel_to_git_root(root, &target))
+        .unwrap_or_else(|| PathBuf::from(file));
     let tracked = git_root.is_some_and(|root| git_is_tracked(root, &rel_path));
 
     if let Some(root) = git_root {
@@ -434,7 +448,7 @@ pub fn unlink_file(
         std::fs::rename(&backup, target)?;
         eprintln!("  {} {} {}", style::check(), style::dim("restored"), entry.file);
     } else if let Some(root) = git_root {
-        let rel_path = PathBuf::from(&entry.file);
+        let rel_path = rel_to_git_root(root, target);
         if entry.skip_worktree {
             git_unset_skip_worktree(root, &rel_path).ok();
             let _ = std::process::Command::new("git")
@@ -447,13 +461,13 @@ pub fn unlink_file(
     }
 
     if let Some(root) = git_root {
-        let rel_path = PathBuf::from(&entry.file);
+        let rel_path = rel_to_git_root(root, target);
         if entry.skip_worktree {
             git_unset_skip_worktree(root, &rel_path).ok();
         } else {
             git_remove_from_exclude(root, &rel_path).ok();
         }
-        let backup_rel = backup_path(&PathBuf::from(&entry.file));
+        let backup_rel = rel_to_git_root(root, &backup);
         git_remove_from_exclude(root, &backup_rel).ok();
     }
 
@@ -470,7 +484,9 @@ pub fn ignore_file(
     state: &mut State,
 ) -> anyhow::Result<bool> {
     let target = cwd.join(file);
-    let rel_path = PathBuf::from(file);
+    let rel_path = git_root
+        .map(|root| rel_to_git_root(root, &target))
+        .unwrap_or_else(|| PathBuf::from(file));
     let tracked = git_root.is_some_and(|root| git_is_tracked(root, &rel_path));
 
     if let Some(root) = git_root {
@@ -500,7 +516,7 @@ pub fn unignore_file(
     state: &mut State,
 ) -> anyhow::Result<bool> {
     if let Some(root) = git_root {
-        let rel_path = PathBuf::from(&entry.file);
+        let rel_path = rel_to_git_root(root, &entry.target);
         if entry.skip_worktree {
             git_unset_skip_worktree(root, &rel_path).ok();
         } else {

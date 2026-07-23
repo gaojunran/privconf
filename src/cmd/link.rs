@@ -42,7 +42,8 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
         });
         if already {
             if let Some(root) = git_root.as_deref() {
-                let rel_path = std::path::PathBuf::from(file);
+                let target = cwd.join(file);
+                let rel_path = crate::config::rel_to_git_root(root, &target);
                 let tracked = crate::config::git_is_tracked(root, &rel_path);
                 if tracked {
                     crate::config::git_set_skip_worktree(root, &rel_path).ok();
