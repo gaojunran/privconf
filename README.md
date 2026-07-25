@@ -250,6 +250,10 @@ For tracked files under jj, there is no way for privconf to make the symlink rep
 - Skip push when store has no remote
 - Check staged changes before commit in sync
 
+## Built With
+
+[oh-my-opencode-slim](https://github.com/alvinunreal/oh-my-opencode-slim) — an agent orchestration plugin for OpenCode.
+
 ## License
 
 MIT
