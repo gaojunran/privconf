@@ -26,6 +26,9 @@ enum Commands {
         /// Project name (auto-detected from git remote if omitted)
         #[arg(long, short)]
         project: Option<String>,
+        /// Apply to ALL projects (stored in the `[all]` block, linked on every `privconf link`)
+        #[arg(long, short)]
+        all: bool,
         /// Files or directories to add (omit to create project only)
         files: Vec<String>,
     },
@@ -34,6 +37,9 @@ enum Commands {
         /// Project name (auto-detected from git remote if omitted)
         #[arg(long, short)]
         project: Option<String>,
+        /// Remove from the `[all]` block (applies to ALL projects)
+        #[arg(long, short)]
+        all: bool,
         /// Files or directories to remove
         files: Vec<String>,
     },
@@ -71,6 +77,9 @@ enum Commands {
         /// Project name (auto-detected from git remote if omitted)
         #[arg(long, short)]
         project: Option<String>,
+        /// Apply to ALL projects (stored in the `[all]` block)
+        #[arg(long, short)]
+        all: bool,
         /// Files to ignore
         files: Vec<String>,
     },
@@ -81,14 +90,14 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Init { remote, no_git } => cmd::init::run(remote.as_deref(), no_git),
-        Commands::Add { project, files } => cmd::add::run(project, files),
-        Commands::Remove { project, files } => cmd::remove::run(project, files),
+        Commands::Add { project, all, files } => cmd::add::run(all, project, files),
+        Commands::Remove { project, all, files } => cmd::remove::run(all, project, files),
         Commands::Link { quiet, sync } => cmd::link::run(quiet, sync),
         Commands::Unlink => cmd::unlink::run(),
         Commands::Status => cmd::status::run(),
         Commands::Sync { message, dry_run } => cmd::sync::run(message.as_deref(), dry_run),
         Commands::List => cmd::list::run(),
         Commands::Hook { shell } => cmd::hook::run(&shell),
-        Commands::Ignore { project, files } => cmd::ignore::run(project, files),
+        Commands::Ignore { project, all, files } => cmd::ignore::run(all, project, files),
     }
 }

@@ -1665,3 +1665,237 @@ fn test_init_no_git_with_remote_fails() {
     env.privconf(&["init", "--no-git", "file:///some/remote"])
         .assert_failure();
 }
+
+// ── --all feature tests ──
+
+#[test]
+fn test_add_all_creates_symlink_and_config() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join(".editorconfig"), "root = true").unwrap();
+
+    env.privconf(&["add", "--all", ".editorconfig"])
+        .current_dir(&repo)
+        .assert_success();
+
+    // Symlink created in current dir
+    assert!(repo.join(".editorconfig").is_symlink());
+    // Stored in projects/__all__/
+    assert!(env.project_dir("__all__").join(".editorconfig").exists());
+
+    // config.toml has [all] block
+    let config = fs::read_to_string(env.store_dir().join("config.toml")).unwrap();
+    assert!(config.contains("[all]"));
+    assert!(config.contains(".editorconfig"));
+}
+
+#[test]
+fn test_link_applies_all_files_to_other_project() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    // Add an all-file from project A
+    let repo_a = env.create_git_repo("proja", Some("git@github.com:myco/proja.git"));
+    fs::write(repo_a.join(".editorconfig"), "root = true").unwrap();
+    env.privconf(&["add", "--all", ".editorconfig"])
+        .current_dir(&repo_a)
+        .assert_success();
+
+    // Create project B with its own file
+    let repo_b = env.create_git_repo("projb", Some("git@github.com:myco/projb.git"));
+    fs::write(repo_b.join("mise.local.toml"), "node = '22'").unwrap();
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo_b)
+        .assert_success();
+
+    // Remove the .editorconfig symlink that was created by add --all
+    fs::remove_file(repo_b.join(".editorconfig")).ok();
+
+    // link in project B — should link both project file AND all file
+    env.privconf(&["link"])
+        .current_dir(&repo_b)
+        .assert_success();
+
+    assert!(repo_b.join("mise.local.toml").is_symlink());
+    assert!(repo_b.join(".editorconfig").is_symlink());
+}
+
+#[test]
+fn test_ignore_all_applies_on_link() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo_a = env.create_git_repo("proja", Some("git@github.com:myco/proja.git"));
+    env.privconf(&["ignore", "--all", "debug.log"])
+        .current_dir(&repo_a)
+        .assert_success();
+
+    // Create project B
+    let repo_b = env.create_git_repo("projb", Some("git@github.com:myco/projb.git"));
+    fs::write(repo_b.join("mise.local.toml"), "node = '22'").unwrap();
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo_b)
+        .assert_success();
+
+    // Create a debug.log in repo_b — should be ignored after link
+    fs::write(repo_b.join("debug.log"), "debug").unwrap();
+
+    env.privconf(&["link"])
+        .current_dir(&repo_b)
+        .assert_success();
+
+    let git_status = env.git(&["status", "--porcelain"], &repo_b).assert_success();
+    let status_str = String::from_utf8_lossy(&git_status.stdout);
+    assert!(!status_str.contains("debug.log"), "debug.log should be ignored, got: {status_str}");
+}
+
+#[test]
+fn test_remove_all_unlinks_and_removes_from_config() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join(".editorconfig"), "root = true").unwrap();
+
+    env.privconf(&["add", "--all", ".editorconfig"])
+        .current_dir(&repo)
+        .assert_success();
+    assert!(repo.join(".editorconfig").is_symlink());
+
+    env.privconf(&["remove", "--all", ".editorconfig"])
+        .current_dir(&repo)
+        .assert_success();
+
+    assert!(!repo.join(".editorconfig").is_symlink());
+    assert!(!env.project_dir("__all__").join(".editorconfig").exists());
+
+    let config = fs::read_to_string(env.store_dir().join("config.toml")).unwrap();
+    assert!(!config.contains(".editorconfig"));
+}
+
+#[test]
+fn test_status_shows_all_block() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join(".editorconfig"), "root = true").unwrap();
+    env.privconf(&["add", "--all", ".editorconfig"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let output = env.privconf(&["status"])
+        .current_dir(&repo)
+        .assert_success();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("all"), "status should show all block, got: {stdout}");
+    assert!(stdout.contains(".editorconfig"));
+}
+
+#[test]
+fn test_list_shows_all_block() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join(".editorconfig"), "root = true").unwrap();
+    env.privconf(&["add", "--all", ".editorconfig"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let output = env.privconf(&["list"]).assert_success();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("all"), "list should show all block, got: {stdout}");
+}
+
+#[test]
+fn test_project_file_overrides_all_file() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    // Add .editorconfig as all-file from project A
+    let repo_a = env.create_git_repo("proja", Some("git@github.com:myco/proja.git"));
+    fs::write(repo_a.join(".editorconfig"), "root = true\n").unwrap();
+    env.privconf(&["add", "--all", ".editorconfig"])
+        .current_dir(&repo_a)
+        .assert_success();
+
+    // Add .editorconfig as project-specific file in project B
+    let repo_b = env.create_git_repo("projb", Some("git@github.com:myco/projb.git"));
+    fs::write(repo_b.join(".editorconfig"), "# project-specific\n").unwrap();
+    env.privconf(&["add", ".editorconfig"])
+        .current_dir(&repo_b)
+        .assert_success();
+
+    // The symlink should point to project B's store, not __all__'s
+    let link_target = repo_b.join(".editorconfig").read_link().unwrap();
+    assert!(
+        link_target.starts_with(env.project_dir("projb")),
+        "project file should override all file, link target: {}",
+        link_target.display()
+    );
+}
+
+#[test]
+fn test_all_and_project_flag_conflict() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("mise.toml"), "node = '22'").unwrap();
+
+    env.privconf(&["add", "--all", "-p", "myproj", "mise.toml"])
+        .current_dir(&repo)
+        .assert_failure();
+}
+
+#[test]
+fn test_add_all_without_files_fails() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+
+    env.privconf(&["add", "--all"])
+        .current_dir(&repo)
+        .assert_failure();
+}
+
+#[test]
+fn test_new_project_auto_gets_all_files_on_link() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    // Set up all-file first
+    let repo_a = env.create_git_repo("proja", Some("git@github.com:myco/proja.git"));
+    fs::write(repo_a.join(".envrc"), "use mise").unwrap();
+    env.privconf(&["add", "--all", ".envrc"])
+        .current_dir(&repo_a)
+        .assert_success();
+
+    // Later, create a new project B — link should get all files automatically
+    let repo_b = env.create_git_repo("projb", Some("git@github.com:myco/projb.git"));
+    fs::write(repo_b.join("mise.local.toml"), "node = '22'").unwrap();
+    env.privconf(&["add", "mise.local.toml"])
+        .current_dir(&repo_b)
+        .assert_success();
+
+    // Remove .envrc symlink from add (it was linked by add --all in repo_a, not repo_b)
+    // Actually, add --all only links in the current dir. So repo_b doesn't have .envrc yet.
+    assert!(!repo_b.join(".envrc").exists());
+
+    // Now link in repo_b
+    env.privconf(&["link"])
+        .current_dir(&repo_b)
+        .assert_success();
+
+    // .envrc should now be linked (from all block)
+    assert!(repo_b.join(".envrc").is_symlink());
+    let link_target = repo_b.join(".envrc").read_link().unwrap();
+    assert!(
+        link_target.starts_with(env.project_dir("__all__")),
+        "all file should link from __all__ store"
+    );
+}

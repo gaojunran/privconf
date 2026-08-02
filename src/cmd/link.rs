@@ -23,6 +23,22 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
     let mut ignored_count = 0usize;
     let mut skipped_count = 0usize;
 
+    let all_name = crate::config::ALL_PROJECT_NAME;
+
+    // Link files: all-files first (excluding those overridden by the project), then project files.
+    for file in config.all.files.iter().filter(|f| !project.files.contains(f)) {
+        match crate::config::link_file(all_name, file, &cwd, git_root.as_deref(), &mut state, quiet, true) {
+            Ok(true) => linked_count += 1,
+            Ok(false) => skipped_count += 1,
+            Err(e) => {
+                if !quiet {
+                    eprintln!("{} link {}: {e}", style::cross(), file);
+                }
+                skipped_count += 1;
+            }
+        }
+    }
+
     for file in &project.files {
         match crate::config::link_file(&project.name, file, &cwd, git_root.as_deref(), &mut state, quiet, true) {
             Ok(true) => linked_count += 1,
@@ -32,6 +48,37 @@ pub fn run(quiet: bool, sync: bool) -> anyhow::Result<()> {
                     eprintln!("{} link {}: {e}", style::cross(), file);
                 }
                 skipped_count += 1;
+            }
+        }
+    }
+
+    // Ignore files: all-ignored first (excluding those overridden by the project), then project ignored.
+    for file in config.all.ignored.iter().filter(|f| !project.ignored.contains(f)) {
+        let already = state.linked.iter().any(|e| {
+            e.project == all_name && e.file == *file && e.ignored && e.target.starts_with(&cwd)
+        });
+        if already {
+            if let Some(root) = git_root.as_deref() {
+                let target = cwd.join(file);
+                let rel_path = crate::config::rel_to_git_root(root, &target);
+                let tracked = crate::config::git_is_tracked(root, &rel_path);
+                if tracked {
+                    crate::config::git_set_skip_worktree(root, &rel_path).ok();
+                } else {
+                    crate::config::git_add_to_exclude(root, &rel_path).ok();
+                }
+            }
+            skipped_count += 1;
+        } else {
+            match crate::config::ignore_file(all_name, file, &cwd, git_root.as_deref(), &mut state) {
+                Ok(true) => ignored_count += 1,
+                Ok(false) => skipped_count += 1,
+                Err(e) => {
+                    if !quiet {
+                        eprintln!("{} ignore {}: {e}", style::cross(), file);
+                    }
+                    skipped_count += 1;
+                }
             }
         }
     }

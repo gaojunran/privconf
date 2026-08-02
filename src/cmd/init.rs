@@ -31,7 +31,7 @@ pub fn run(remote: Option<&str>, no_git: bool) -> anyhow::Result<()> {
         }
 
         if !store.join(crate::config::CONFIG_FILE_NAME).exists() {
-            let config = crate::config::Config { project: vec![] };
+        let config = crate::config::Config::default();
             crate::config::save_config(&config)?;
         }
         if !store.join(crate::config::STATE_FILE_NAME).exists() {
@@ -45,7 +45,7 @@ pub fn run(remote: Option<&str>, no_git: bool) -> anyhow::Result<()> {
 
         std::fs::write(store.join(".gitignore"), "state.toml\n")?;
 
-        let config = crate::config::Config { project: vec![] };
+        let config = crate::config::Config::default();
         crate::config::save_config(&config)?;
 
         let state = crate::config::State::default();

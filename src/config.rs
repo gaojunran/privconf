@@ -7,6 +7,10 @@ pub const STORE_DIR_NAME: &str = ".privconf";
 pub const CONFIG_FILE_NAME: &str = "config.toml";
 pub const STATE_FILE_NAME: &str = "state.toml";
 
+/// Sentinel project name for files that apply to ALL projects.
+/// Stored under `projects/__all__/` in the store.
+pub const ALL_PROJECT_NAME: &str = "__all__";
+
 pub fn store_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("PRIVCONF_DIR") {
         PathBuf::from(dir)
@@ -29,11 +33,23 @@ pub fn project_dir(project: &str) -> PathBuf {
     store_dir().join("projects").join(project)
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
     pub project: Vec<ProjectEntry>,
+    /// Files/ignored that apply to ALL projects, linked on every `privconf link`.
+    #[serde(default)]
+    pub all: AllEntry,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AllEntry {
+    #[serde(default)]
+    pub files: Vec<String>,
+    #[serde(default)]
+    pub ignored: Vec<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -123,7 +139,7 @@ pub struct LinkedEntry {
 pub fn load_config() -> anyhow::Result<Config> {
     let path = config_path();
     if !path.exists() {
-        return Ok(Config { project: vec![] });
+        return Ok(Config::default());
     }
     let content = std::fs::read_to_string(&path)
         .with_context(|| format!("reading {}", path.display()))?;

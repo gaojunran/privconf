@@ -67,9 +67,9 @@ cargo install --git https://github.com/gaojunran/privconf
 | Command | Description |
 |---------|-------------|
 | `init [<remote>] [--no-git]` | Initialize privconf store at `~/.privconf/`. With a remote URL, clone an existing store repo instead. `--no-git` skips git init for embedding inside an existing repo. |
-| `add [-p <name>] [files...]` | Add files/dirs to store and create symlinks. Project name auto-detected from git remote. Omit files to create project only. |
-| `ignore [-p <name>] <files...>` | Ignore files in current project (add to `.git/info/exclude` or `skip-worktree`, no symlink, no store copy) |
-| `remove [-p <name>] <files...>` | Remove files from store, remove symlinks, restore originals |
+| `add [-p <name>] [-a] [files...]` | Add files/dirs to store and create symlinks. Project name auto-detected from git remote. Omit files to create project only. `-a`/`--all` adds to the `[all]` block (applies to every project). |
+| `ignore [-p <name>] [-a] <files...>` | Ignore files in current project (add to `.git/info/exclude` or `skip-worktree`, no symlink, no store copy). `-a`/`--all` adds to the `[all]` block. |
+| `remove [-p <name>] [-a] <files...>` | Remove files from store, remove symlinks, restore originals. `-a`/`--all` removes from the `[all]` block. |
 | `link [-s] [-q]` | Rebuild symlinks for current project. `--sync` / `-s` pulls store first. `--quiet` / `-q` suppresses output. |
 | `unlink` | Remove all symlinks and restore original files |
 | `status` | Show link status for current directory |
@@ -97,6 +97,12 @@ export PRIVCONF_DIR=/path/to/custom/store
 ### `config.toml`
 
 ```toml
+# Files/ignored that apply to ALL projects.
+# Linked on every `privconf link`, regardless of which project matches.
+[all]
+files = [".editorconfig", ".envrc"]
+ignored = ["*.log"]
+
 [[project]]
 name = "myproj"
 match_remote = "git@github.com:myco/myproj.git"
@@ -109,6 +115,22 @@ match_path = "~/Projects/work/*"
 files = [".env", "scripts/deploy.sh"]
 ignored = ["*.log"]
 ```
+
+## `--all` Flag (Applies to Every Project)
+
+`add --all`, `ignore --all`, and `remove --all` operate on a separate `[all]` block in `config.toml` instead of a specific project. Files in the `[all]` block are:
+
+- **Linked on every `privconf link`** — no matter which project matches the current directory, the all-files are symlinked in alongside the project's own files.
+- **Applied to new projects automatically** — when you create a new project later, `privconf link` picks up the all-files without any extra setup.
+- **Stored under `projects/__all__/`** in the privconf store.
+
+```bash
+privconf add --all .editorconfig .envrc    # link these in every project
+privconf ignore --all "*.log"              # ignore these in every project
+privconf remove --all .envrc               # remove from the all block
+```
+
+If a file appears in both `[all]` and a specific project, the project-specific entry takes precedence (the symlink points to the project's copy, not the all copy).
 
 ### `state.toml`
 
@@ -190,6 +212,10 @@ What works and what doesn't under jj:
 For tracked files under jj, there is no way for privconf to make the symlink replacement invisible. The jj-native approach is to keep local overrides in a separate private commit (merged into your working branch) and use [`git.private-commits`](https://docs.jj-vcs.dev/latest/config/#gitprivate-commits) to prevent pushing it. See the [jj FAQ](https://docs.jj-vcs.dev/latest/FAQ/#how-can-i-avoid-committing-my-local-only-changes-to-tracked-files) for details.
 
 ## Changelog
+
+### v0.15.0
+
+- **`--all` flag for `add`/`ignore`/`remove`**: files in the `[all]` block apply to every project. `privconf link` symlinks them alongside the project's own files, so new projects automatically inherit them. Project-specific entries override `[all]` entries when both exist.
 
 ### v0.14.0
 
