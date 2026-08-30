@@ -8,12 +8,12 @@ This directory is the crate root of `privconf`, a Rust CLI for managing project-
 
 ### Entry Point (main.rs)
 
-`main.rs` declares three sibling modules (`cmd`, `config`, `style`) and defines the CLI surface using `clap` derive macros:
+`main.rs` declares three sibling modules (`cmd`, `config`, `style`) and defines the CLI surface using `usage` derive macros (usage-rs, the Rust compile-time framework from jdx/usage):
 
-- `Cli` — a struct with `#[derive(Parser)]` and a single `command: Commands` field annotated with `#[command(subcommand)]`.
-- `Commands` — an enum with `#[derive(clap::Subcommand)]` whose variants map 1:1 to the supported subcommands: `Init`, `Add`, `Remove`, `Link`, `Unlink`, `Status`, `Sync`, `List`, `Hook`, `Ignore`. Each variant carries the CLI arguments defined with `#[arg(long, short)]` and positional parameters.
+- `Cli` — a struct with `#[derive(Cli)]` and a single `command: Commands` field annotated with `#[usage(subcommand)]`.
+- `Commands` — an enum with `#[derive(Subcommands)]` whose variants map 1:1 to the supported subcommands: `Init`, `Add`, `Remove`, `Link`, `Unlink`, `Status`, `Sync`, `List`, `Hook`, `Ignore`. Each variant carries the CLI arguments defined with `#[usage(long, short)]` and positional parameters.
 
-`main() -> anyhow::Result<()>` parses arguments with `Cli::parse()` and dispatches via a `match` on `cli.command` to the corresponding `cmd::<subcommand>::run(...)` function. The `main` function itself is the only place where CLI parsing and top-level dispatch occur.
+`main() -> anyhow::Result<()>` parses arguments with `Cli::parse()` (same exit contract as clap: `-h`/`--help` exits 0, parse errors exit 2) and dispatches via a `match` on `cli.command` to the corresponding `cmd::<subcommand>::run(...)` function. The `main` function itself is the only place where CLI parsing and top-level dispatch occur.
 
 ### Configuration and State (config.rs)
 
@@ -85,7 +85,7 @@ main.rs
 - `cmd/` — Subcommand implementations. See `src/cmd/codemap.md` for internal structure.
 
 **External crates**:
-- `clap` (derive) — CLI parsing. `Cli` and `Commands` use `#[derive(Parser)]` and `#[derive(Subcommand)]`.
+- `usage` (usage-rs, derive) — CLI parsing. `Cli` and `Commands` use `#[derive(Cli)]` and `#[derive(Subcommands)]`.
 - `anyhow` — Error handling. All public functions return `anyhow::Result`. `Context` and `bail!` / `ensure!` are used for error messages.
 - `serde` (derive) — Serialization of `Config`, `State`, `ProjectEntry`, `LinkedEntry`.
 - `toml` — TOML encoding/decoding for `config.toml` and `state.toml`.
