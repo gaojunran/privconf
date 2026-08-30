@@ -213,6 +213,10 @@ For tracked files under jj, there is no way for privconf to make the symlink rep
 
 ## Changelog
 
+### v0.16.0
+
+- **CLI framework migrated from clap to usage-rs**: parsing, help, and error rendering now driven by usage (KDL-based CLI spec). Same command surface and exit-code contract (errors exit 2, `-h`/`--help` exit 0). Shell completions now built in via `privconf completion` (bash/zsh/fish).
+
 ### v0.15.0
 
 - **`--all` flag for `add`/`ignore`/`remove`**: files in the `[all]` block apply to every project. `privconf link` symlinks them alongside the project's own files, so new projects automatically inherit them. Project-specific entries override `[all]` entries when both exist.

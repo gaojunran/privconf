@@ -6,8 +6,8 @@
 
 ## System Entry Points
 
-- `src/main.rs` — binary entry point. Defines the `Cli` and `Commands` clap types, parses argv, and dispatches to `cmd::<subcommand>::run(...)`.
-- `Cargo.toml` — manifest. `name = "privconf"`, `edition = "2024"`, single binary target. Dependencies: `clap` (derive), `anyhow`, `serde`, `toml`, `glob`, `shellexpand`, `dirs`, `tempfile`.
+- `src/main.rs` — binary entry point. Defines the `Cli` and `Commands` usage-rs types, parses argv, and dispatches to `cmd::<subcommand>::run(...)`.
+- `Cargo.toml` — manifest. `name = "privconf"`, `edition = "2024"`, single binary target. Dependencies: `usage` (usage-rs derive), `anyhow`, `serde`, `toml`, `glob`, `shellexpand`, `dirs`, `tempfile`.
 - `tests/e2e.rs` — end-to-end test harness driving the compiled binary against temp directories.
 - `README.md` — user-facing command reference, examples, and changelog.
 

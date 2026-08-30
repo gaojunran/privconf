@@ -2,32 +2,37 @@ mod cmd;
 mod config;
 mod style;
 
-use clap::Parser;
+use usage::{Cli, Subcommands};
 
-#[derive(Parser)]
-#[command(name = "privconf", about = "Private config manager for project-specific files")]
+#[derive(Cli)]
+#[usage(
+    bin = "privconf",
+    about = "Private config manager for project-specific files",
+    completion,
+    unknown_flags = "error"
+)]
 struct Cli {
-    #[command(subcommand)]
+    #[usage(subcommand)]
     command: Commands,
 }
 
-#[derive(clap::Subcommand)]
+#[derive(Subcommands)]
 enum Commands {
     /// Initialize privconf store
     Init {
         /// Remote URL to clone (if omitted, creates a new store)
         remote: Option<String>,
         /// Skip git init — use when embedding privconf inside an existing git repo (e.g. chezmoi)
-        #[arg(long)]
+        #[usage(long)]
         no_git: bool,
     },
     /// Add files from current project to privconf and create symlinks
     Add {
         /// Project name (auto-detected from git remote if omitted)
-        #[arg(long, short)]
+        #[usage(long, short)]
         project: Option<String>,
         /// Apply to ALL projects (stored in the `[all]` block, linked on every `privconf link`)
-        #[arg(long, short)]
+        #[usage(long, short)]
         all: bool,
         /// Files or directories to add (omit to create project only)
         files: Vec<String>,
@@ -35,10 +40,10 @@ enum Commands {
     /// Remove files from privconf and restore originals
     Remove {
         /// Project name (auto-detected from git remote if omitted)
-        #[arg(long, short)]
+        #[usage(long, short)]
         project: Option<String>,
         /// Remove from the `[all]` block (applies to ALL projects)
-        #[arg(long, short)]
+        #[usage(long, short)]
         all: bool,
         /// Files or directories to remove
         files: Vec<String>,
@@ -46,10 +51,10 @@ enum Commands {
     /// Link private config files into current project directory
     Link {
         /// Suppress output
-        #[arg(long, short)]
+        #[usage(long, short)]
         quiet: bool,
         /// Sync store with remote before linking
-        #[arg(long, short)]
+        #[usage(long, short)]
         sync: bool,
     },
     /// Unlink private config files from current project directory
@@ -59,10 +64,10 @@ enum Commands {
     /// Sync privconf store with remote
     Sync {
         /// Commit message (default: "sync")
-        #[arg(long, short)]
+        #[usage(long, short)]
         message: Option<String>,
         /// Show what would be done without making changes
-        #[arg(long)]
+        #[usage(long)]
         dry_run: bool,
     },
     /// List all projects in the store
@@ -75,10 +80,10 @@ enum Commands {
     /// Ignore files in current project (add to .git/info/exclude or skip-worktree, no symlink)
     Ignore {
         /// Project name (auto-detected from git remote if omitted)
-        #[arg(long, short)]
+        #[usage(long, short)]
         project: Option<String>,
         /// Apply to ALL projects (stored in the `[all]` block)
-        #[arg(long, short)]
+        #[usage(long, short)]
         all: bool,
         /// Files to ignore
         files: Vec<String>,

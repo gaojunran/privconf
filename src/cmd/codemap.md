@@ -6,7 +6,7 @@ The `src/cmd/` directory contains the implementation of every CLI subcommand. It
 
 ## Design
 
-**Command Pattern via clap derive.** `src/main.rs` defines a single `Cli` struct with `#[command(subcommand)]` and a `Commands` enum annotated with `#[derive(clap::Subcommand)]`. Each variant carries the arguments for one command. After `Cli::parse()`, `main` matches on `Commands` and calls the corresponding `cmd::<module>::run(...)` function. There is no dynamic dispatch and no shared trait; the binding is static and explicit.
+**Command Pattern via usage derive.** `src/main.rs` defines a single `Cli` struct with `#[usage(subcommand)]` and a `Commands` enum annotated with `#[derive(usage::Subcommands)]`. Each variant carries the arguments for one command. After `Cli::parse()`, `main` matches on `Commands` and calls the corresponding `cmd::<module>::run(...)` function. There is no dynamic dispatch and no shared trait; the binding is static and explicit.
 
 **Module-per-command convention.** Every file in this directory (except `mod.rs`) exports exactly one public entry point:
 
@@ -14,7 +14,7 @@ The `src/cmd/` directory contains the implementation of every CLI subcommand. It
 pub fn run(...) -> anyhow::Result<()>
 ```
 
-The parameter list varies per command because clap arguments are passed directly. For example:
+The parameter list varies per command because usage-rs arguments are passed directly. For example:
 
 - `init::run(remote: Option<&str>, no_git: bool)`
 - `add::run(project_name: Option<String>, files: Vec<String>)`
@@ -33,7 +33,7 @@ The parameter list varies per command because clap arguments are passed directly
 
 ## Flow
 
-1. **Parsing.** `main.rs` invokes `Cli::parse()`. clap populates the `Commands` enum with variant-specific fields.
+1. **Parsing.** `main.rs` invokes `Cli::parse()`. usage-rs populates the `Commands` enum with variant-specific fields (same type→cardinality mapping as clap: `Option<T>` optional, `Vec<T>` variadic, `bool` switch).
 2. **Dispatch.** A `match cli.command` block maps each variant to the corresponding `cmd::` function, extracting owned fields (e.g., `project`, `files`) and passing them as arguments.
 3. **Guard.** Nearly every command calls `config::ensure_initialized()` first, which checks that `store_dir()/config.toml` exists and returns an error if the user has not run `init`.
 4. **Execution.** The command loads `Config` and/or `State`, performs filesystem operations (copy, symlink, git shell-outs), and writes results back. For example:
@@ -46,7 +46,7 @@ The parameter list varies per command because clap arguments are passed directly
 ## Integration
 
 **Consumers:**
-- `src/main.rs` — owns the `Cli`/`Commands` clap definitions and dispatches into each `cmd::` module.
+- `src/main.rs` — owns the `Cli`/`Commands` usage-rs definitions and dispatches into each `cmd::` module.
 - `src/config.rs` — provides `Config`, `State`, `ProjectEntry`, `LinkedEntry`, and all load/save/link/unlink/ignore/git helper functions used by commands.
 - `src/style.rs` — ANSI styling helpers (`green`, `bold`, `dim`, `check`, `cross`, `arrow`) used for CLI output.
 

@@ -1,11 +1,11 @@
 [package]
 name = "privconf"
-version = "0.15.0"
+version = "0.16.0"
 edition = "2024"
 
 [dependencies]
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
+usage = { package = "usage-rs", version = "6", features = ["completions"] }
 dirs = "6"
 glob = "0.3.3"
 serde = { version = "1", features = ["derive"] }
