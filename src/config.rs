@@ -1,4 +1,6 @@
 use crate::style;
+use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
 
 use anyhow::{Context, bail, ensure};
@@ -125,15 +127,70 @@ pub struct State {
     pub linked: Vec<LinkedEntry>,
 }
 
+/// `PathBuf` in `state.toml`: percent-escaped so paths with non-UTF-8 bytes
+/// survive a round trip (TOML strings cannot hold them). Ordinary ASCII paths
+/// serialize unchanged, so existing state files keep working.
+mod path_serde {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Path, PathBuf};
+
+    pub fn serialize<S: Serializer>(path: &Path, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut encoded = String::new();
+        for &byte in path.as_os_str().as_bytes() {
+            match byte {
+                b'%' => encoded.push_str("%25"),
+                0x20..=0x7e => encoded.push(byte as char),
+                _ => encoded.push_str(&format!("%{byte:02X}")),
+            }
+        }
+        serializer.serialize_str(&encoded)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<PathBuf, D::Error> {
+        let encoded = String::deserialize(deserializer)?;
+        let bytes = encoded.as_bytes();
+        let mut decoded = Vec::with_capacity(bytes.len());
+        let mut index = 0;
+        while index < bytes.len() {
+            let hex = (bytes[index] == b'%')
+                .then(|| encoded.get(index + 1..index + 3))
+                .flatten()
+                .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+            match hex {
+                Some(byte) => {
+                    decoded.push(byte);
+                    index += 3;
+                }
+                None => {
+                    decoded.push(bytes[index]);
+                    index += 1;
+                }
+            }
+        }
+        Ok(PathBuf::from(std::ffi::OsString::from_vec(decoded)))
+    }
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct LinkedEntry {
     pub project: String,
     pub file: String,
+    #[serde(with = "path_serde")]
     pub target: PathBuf,
     pub skip_worktree: bool,
     #[serde(default)]
     pub ignored: bool,
+}
+
+/// Outcome of `link_file`, so callers can tell applied work from no-ops.
+pub enum LinkOutcome {
+    Linked,
+    /// Already a correct symlink; git visibility was re-applied.
+    Unchanged,
+    /// Nothing to link (source missing from the store).
+    Skipped,
 }
 
 pub fn load_config() -> anyhow::Result<Config> {
@@ -184,8 +241,12 @@ pub fn find_project_for_dir<'a>(config: &'a Config, dir: &std::path::Path) -> Op
     config.project.iter().find(|p| {
         p.match_path.as_ref().is_some_and(|pattern| {
             let expanded = shellexpand::tilde(pattern);
-            glob::Pattern::new(&expanded)
-                .is_ok_and(|glob| glob.matches_path(dir))
+            if expanded.contains(['*', '?', '[']) {
+                return glob::Pattern::new(&expanded)
+                    .is_ok_and(|glob| glob.matches_path(dir));
+            }
+            // An exact path also covers everything below it (project roots are directories).
+            dir.starts_with(std::path::Path::new(expanded.as_ref()))
         })
     })
 }
@@ -204,7 +265,7 @@ pub fn git_root(path: &std::path::Path) -> anyhow::Result<PathBuf> {
     if !output.status.success() {
         bail!("not inside a git repository");
     }
-    Ok(PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
+    Ok(PathBuf::from(OsString::from_vec(trim_newline(output.stdout))))
 }
 
 pub fn git_common_dir(path: &std::path::Path) -> anyhow::Result<PathBuf> {
@@ -215,18 +276,29 @@ pub fn git_common_dir(path: &std::path::Path) -> anyhow::Result<PathBuf> {
     if !output.status.success() {
         bail!("not inside a git repository");
     }
-    let dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if std::path::Path::new(&dir).is_absolute() {
-        Ok(PathBuf::from(dir))
-    } else {
-        Ok(path.join(dir))
+    let dir = PathBuf::from(OsString::from_vec(trim_newline(output.stdout)));
+    Ok(if dir.is_absolute() { dir } else { path.join(dir) })
+}
+
+fn trim_newline(mut bytes: Vec<u8>) -> Vec<u8> {
+    while let Some(b'\n' | b'\r') = bytes.last().copied() {
+        bytes.pop();
     }
+    bytes
+}
+
+/// Git path arguments are pathspecs, so glob characters in file names (`*`,
+/// `?`, `[`) would be interpreted as patterns; this prefix disables that.
+fn literal_path(path: impl AsRef<std::ffi::OsStr>) -> std::ffi::OsString {
+    let mut literal = std::ffi::OsString::from(":(literal)");
+    literal.push(path.as_ref());
+    literal
 }
 
 pub fn git_is_tracked(git_root: &std::path::Path, rel_path: &std::path::Path) -> bool {
     let output = std::process::Command::new("git")
-        .args(["ls-files", "--error-unmatch"])
-        .arg(rel_path)
+        .args(["ls-files", "--error-unmatch", "--"])
+        .arg(literal_path(rel_path))
         .current_dir(git_root)
         .output();
     match output {
@@ -235,33 +307,55 @@ pub fn git_is_tracked(git_root: &std::path::Path, rel_path: &std::path::Path) ->
     }
 }
 
+/// Render a repo-relative path as an anchored `.git/info/exclude` pattern.
+/// The file uses gitignore syntax, so meta characters must be escaped and a
+/// leading `/` keeps `debug.log` from also matching `sub/debug.log`. Bytes are
+/// escaped in place so non-UTF-8 file names survive unchanged.
+fn exclude_pattern(rel_path: &std::path::Path) -> Vec<u8> {
+    let mut pattern = vec![b'/'];
+    for &byte in rel_path.as_os_str().as_bytes() {
+        if matches!(byte, b'\\' | b'#' | b'!' | b'*' | b'?' | b'[' | b']' | b' ') {
+            pattern.push(b'\\');
+        }
+        pattern.push(byte);
+    }
+    pattern
+}
+
+/// Match both the escaped/anchored form and the raw form written by versions
+/// before escaping existed, so old entries are still deduplicated and removed.
+fn exclude_line_matches(line: &[u8], rel_path: &std::path::Path) -> bool {
+    line == exclude_pattern(rel_path) || line == rel_path.as_os_str().as_bytes()
+}
+
 pub fn git_add_to_exclude(git_root: &std::path::Path, rel_path: &std::path::Path) -> anyhow::Result<()> {
+    use std::io::Write;
+
     let exclude_file = git_common_dir(git_root)?.join("info").join("exclude");
     if let Some(parent) = exclude_file.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let rel_str = rel_path.to_string_lossy().to_string();
-    if exclude_file.exists() {
-        let content = std::fs::read_to_string(&exclude_file)?;
-        if content.lines().any(|line| line.trim() == rel_str) {
-            return Ok(());
-        }
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&exclude_file)?;
-        if !content.ends_with('\n') {
-            writeln!(file)?;
-        }
-        writeln!(file, "{rel_str}")?;
+    let content = if exclude_file.exists() {
+        std::fs::read(&exclude_file)?
     } else {
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&exclude_file)?;
-        writeln!(file, "{rel_str}")?;
+        Vec::new()
+    };
+    if content
+        .split(|&byte| byte == b'\n')
+        .any(|line| exclude_line_matches(line, rel_path))
+    {
+        return Ok(());
     }
+    let mut line = exclude_pattern(rel_path);
+    line.push(b'\n');
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&exclude_file)?;
+    if !content.is_empty() && !content.ends_with(b"\n") {
+        file.write_all(b"\n")?;
+    }
+    file.write_all(&line)?;
     Ok(())
 }
 
@@ -270,43 +364,82 @@ pub fn git_remove_from_exclude(git_root: &std::path::Path, rel_path: &std::path:
     if !exclude_file.exists() {
         return Ok(());
     }
-    let rel_str = rel_path.to_string_lossy().to_string();
-    let content = std::fs::read_to_string(&exclude_file)?;
-    let filtered: String = content
-        .lines()
-        .filter(|line| line.trim() != rel_str)
-        .collect::<Vec<_>>()
-        .join("\n");
-    std::fs::write(&exclude_file, filtered)?;
+    let content = std::fs::read(&exclude_file)?;
+    let kept: Vec<&[u8]> = content
+        .split(|&byte| byte == b'\n')
+        .filter(|line| !exclude_line_matches(line, rel_path))
+        .collect();
+    let newline: &[u8] = b"\n";
+    std::fs::write(&exclude_file, kept.join(newline))?;
+    Ok(())
+}
+
+/// Expand a path to the index entries it covers. `git update-index` only
+/// accepts entries, so a directory path must be expanded to the entries
+/// inside it (a directory itself is never an index entry).
+fn git_index_entries(git_root: &std::path::Path, rel_path: &std::path::Path) -> Vec<OsString> {
+    let output = std::process::Command::new("git")
+        .args(["ls-files", "-z", "--"])
+        .arg(literal_path(rel_path))
+        .current_dir(git_root)
+        .output();
+    match output {
+        Ok(out) if out.status.success() => out
+            .stdout
+            .split(|&byte| byte == 0)
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| OsStr::from_bytes(entry).to_os_string())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn git_update_skip_worktree(
+    git_root: &std::path::Path,
+    rel_path: &std::path::Path,
+    flag: &str,
+) -> anyhow::Result<()> {
+    let entries = git_index_entries(git_root, rel_path);
+    ensure!(!entries.is_empty(), "{} has no tracked files", rel_path.display());
+    // `update-index` takes literal paths, not pathspecs.
+    let status = std::process::Command::new("git")
+        .args(["update-index", flag, "--"])
+        .args(&entries)
+        .current_dir(git_root)
+        .status()?;
+    ensure!(status.success(), "git update-index {flag} failed for {}", rel_path.display());
     Ok(())
 }
 
 pub fn git_set_skip_worktree(git_root: &std::path::Path, rel_path: &std::path::Path) -> anyhow::Result<()> {
-    let status = std::process::Command::new("git")
-        .args(["update-index", "--skip-worktree"])
-        .arg(rel_path)
-        .current_dir(git_root)
-        .status()?;
-    ensure!(status.success(), "git update-index --skip-worktree failed");
-    Ok(())
+    git_update_skip_worktree(git_root, rel_path, "--skip-worktree")
 }
 
 pub fn git_unset_skip_worktree(git_root: &std::path::Path, rel_path: &std::path::Path) -> anyhow::Result<()> {
-    let status = std::process::Command::new("git")
-        .args(["update-index", "--no-skip-worktree"])
-        .arg(rel_path)
-        .current_dir(git_root)
-        .status()?;
-    ensure!(status.success(), "git update-index --no-skip-worktree failed");
-    Ok(())
+    git_update_skip_worktree(git_root, rel_path, "--no-skip-worktree")
+}
+
+/// Make `target` invisible to git: untracked paths go to `info/exclude`,
+/// tracked entries get `skip-worktree`. A directory gets both — tracked
+/// content is hidden per entry, untracked content by the exclude rule — so
+/// files added inside it later stay hidden too. Returns whether it is tracked.
+pub fn git_hide_path(git_root: &std::path::Path, target: &std::path::Path) -> anyhow::Result<bool> {
+    let rel_path = rel_to_git_root(git_root, target);
+    ensure!(!rel_path.as_os_str().is_empty(), "cannot ignore the repository root");
+    let tracked = git_is_tracked(git_root, &rel_path);
+    if tracked {
+        git_set_skip_worktree(git_root, &rel_path)?;
+    }
+    if !tracked || target.is_dir() {
+        git_add_to_exclude(git_root, &rel_path)?;
+    }
+    Ok(tracked)
 }
 
 pub fn backup_path(path: &std::path::Path) -> PathBuf {
-    let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    let parent = path.parent();
-    let mut new_name = file_name;
-    new_name.push_str(".privconf.bak");
-    match parent {
+    let mut new_name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    new_name.push(".privconf.bak");
+    match path.parent() {
         Some(p) => p.join(new_name),
         None => PathBuf::from(new_name),
     }
@@ -331,13 +464,13 @@ pub fn link_file(
     state: &mut State,
     quiet: bool,
     backup: bool,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<LinkOutcome> {
     let source = project_dir(project_name).join(file);
     if !source.exists() {
         if !quiet {
             eprintln!("{} {}: {}", style::yellow("skip"), file, style::dim("source not found in store"));
         }
-        return Ok(false);
+        return Ok(LinkOutcome::Skipped);
     }
 
     let target = cwd.join(file);
@@ -349,15 +482,9 @@ pub fn link_file(
             && link_target == source
         {
             if let Some(root) = git_root {
-                let rel_path = rel_to_git_root(root, &target);
-                let tracked = git_is_tracked(root, &rel_path);
-                if tracked {
-                    git_set_skip_worktree(root, &rel_path).ok();
-                } else {
-                    let _ = git_add_to_exclude(root, &rel_path);
-                }
+                git_hide_path(root, &target).ok();
             }
-            return Ok(false);
+            return Ok(LinkOutcome::Unchanged);
         }
         if backup {
             let bak = backup_path(&target);
@@ -401,7 +528,7 @@ pub fn link_file(
             let rel_path = rel_to_git_root(root, &target);
             git_add_to_exclude(root, &rel_path).ok();
         }
-        state.linked.retain(|e| !(e.project == project_name && e.file == file));
+        state.linked.retain(|e| !(e.project == project_name && e.file == file && e.target == target));
         state.linked.push(LinkedEntry {
             project: project_name.to_string(),
             file: file.to_string(),
@@ -412,23 +539,15 @@ pub fn link_file(
         if !quiet {
             eprintln!("  {} {} {}", style::check(), style::green("linked"), style::dim(&format!("{file} (directory, excluded)")));
         }
-        return Ok(true);
+        return Ok(LinkOutcome::Linked);
     }
 
-    let rel_path = git_root
-        .map(|root| rel_to_git_root(root, &target))
-        .unwrap_or_else(|| PathBuf::from(file));
-    let tracked = git_root.is_some_and(|root| git_is_tracked(root, &rel_path));
+    let tracked = match git_root {
+        Some(root) => git_hide_path(root, &target)?,
+        None => false,
+    };
 
-    if let Some(root) = git_root {
-        if tracked {
-            git_set_skip_worktree(root, &rel_path)?;
-        } else {
-            git_add_to_exclude(root, &rel_path)?;
-        }
-    }
-
-    state.linked.retain(|e| !(e.project == project_name && e.file == file));
+    state.linked.retain(|e| !(e.project == project_name && e.file == file && e.target == target));
     state.linked.push(LinkedEntry {
         project: project_name.to_string(),
         file: file.to_string(),
@@ -440,7 +559,7 @@ pub fn link_file(
     if !quiet {
         eprintln!("  {} {} {}", style::check(), style::green("linked"), style::dim(&format!("{file}{}", if tracked { " (skip-worktree)" } else { " (excluded)" })));
     }
-    Ok(true)
+    Ok(LinkOutcome::Linked)
 }
 
 pub fn unlink_file(
@@ -469,7 +588,7 @@ pub fn unlink_file(
             git_unset_skip_worktree(root, &rel_path).ok();
             let _ = std::process::Command::new("git")
                 .args(["checkout", "HEAD", "--"])
-                .arg(&rel_path)
+                .arg(literal_path(&rel_path))
                 .current_dir(root)
                 .status();
             eprintln!("  {} {} {}", style::check(), style::dim("restored"), style::dim(&format!("{} (from git)", entry.file)));
@@ -478,16 +597,14 @@ pub fn unlink_file(
 
     if let Some(root) = git_root {
         let rel_path = rel_to_git_root(root, target);
-        if entry.skip_worktree {
-            git_unset_skip_worktree(root, &rel_path).ok();
-        } else {
-            git_remove_from_exclude(root, &rel_path).ok();
-        }
+        // Both are no-ops when not applicable; a directory may carry both.
+        git_unset_skip_worktree(root, &rel_path).ok();
+        git_remove_from_exclude(root, &rel_path).ok();
         let backup_rel = rel_to_git_root(root, &backup);
         git_remove_from_exclude(root, &backup_rel).ok();
     }
 
-    state.linked.retain(|e| !(e.project == entry.project && e.file == entry.file));
+    state.linked.retain(|e| !(e.project == entry.project && e.file == entry.file && e.target == entry.target));
     eprintln!("  {} {} {}", style::check(), style::green("unlinked"), entry.file);
     Ok(true)
 }
@@ -500,20 +617,24 @@ pub fn ignore_file(
     state: &mut State,
 ) -> anyhow::Result<bool> {
     let target = cwd.join(file);
-    let rel_path = git_root
-        .map(|root| rel_to_git_root(root, &target))
-        .unwrap_or_else(|| PathBuf::from(file));
-    let tracked = git_root.is_some_and(|root| git_is_tracked(root, &rel_path));
 
-    if let Some(root) = git_root {
-        if tracked {
-            git_set_skip_worktree(root, &rel_path)?;
-        } else {
-            git_add_to_exclude(root, &rel_path)?;
-        }
+    // A linked file becomes a plain ignored file: drop the symlink first.
+    if target.is_symlink()
+        && let Some(entry) = state
+            .linked
+            .iter()
+            .find(|e| e.project == project_name && e.file == file && e.target == target)
+            .cloned()
+    {
+        unlink_file(&entry, git_root, state)?;
     }
 
-    state.linked.retain(|e| !(e.project == project_name && e.file == file));
+    let tracked = match git_root {
+        Some(root) => git_hide_path(root, &target)?,
+        None => false,
+    };
+
+    state.linked.retain(|e| !(e.project == project_name && e.file == file && e.target == target));
     state.linked.push(LinkedEntry {
         project: project_name.to_string(),
         file: file.to_string(),
@@ -533,14 +654,44 @@ pub fn unignore_file(
 ) -> anyhow::Result<bool> {
     if let Some(root) = git_root {
         let rel_path = rel_to_git_root(root, &entry.target);
-        if entry.skip_worktree {
-            git_unset_skip_worktree(root, &rel_path).ok();
-        } else {
-            git_remove_from_exclude(root, &rel_path).ok();
-        }
+        // Both are no-ops when not applicable; a directory may carry both.
+        git_unset_skip_worktree(root, &rel_path).ok();
+        git_remove_from_exclude(root, &rel_path).ok();
     }
 
-    state.linked.retain(|e| !(e.project == entry.project && e.file == entry.file));
+    state.linked.retain(|e| !(e.project == entry.project && e.file == entry.file && e.target == entry.target));
     eprintln!("  {} {} {}", style::check(), style::dim("unignored"), entry.file);
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::ffi::OsStringExt;
+
+    #[test]
+    fn state_round_trips_non_utf8_paths() {
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct Holder {
+            #[serde(with = "path_serde")]
+            target: PathBuf,
+        }
+
+        let target = PathBuf::from(std::ffi::OsString::from_vec(b"/tmp/dir\xFF/file".to_vec()));
+        let encoded = toml::to_string(&Holder { target: target.clone() }).unwrap();
+        assert!(encoded.contains("%FF"), "{encoded}");
+        assert_eq!(toml::from_str::<Holder>(&encoded).unwrap().target, target);
+    }
+
+    #[test]
+    fn state_reads_plain_utf8_paths() {
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct Holder {
+            #[serde(with = "path_serde")]
+            target: PathBuf,
+        }
+
+        let decoded = toml::from_str::<Holder>("target = \"/tmp/plain/file\"\n").unwrap();
+        assert_eq!(decoded.target, PathBuf::from("/tmp/plain/file"));
+    }
 }

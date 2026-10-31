@@ -14,7 +14,7 @@ pub fn run() -> anyhow::Result<()> {
         Some(p) => {
             println!("{} {}", style::bold(&p.name), style::dim("project"));
 
-            for file in &p.files {
+            for file in p.files.iter().filter(|f| !p.ignored.contains(f)) {
                 let linked = state.linked.iter().any(|e| {
                     e.project == p.name && e.file == *file && e.target.starts_with(&cwd)
                 });
@@ -47,8 +47,8 @@ pub fn run() -> anyhow::Result<()> {
         println!("\n{} {}", style::bold("all"), style::dim("(applies to every project)"));
 
         for file in &config.all.files {
-            // Skip if overridden by the matched project.
-            if project.is_some_and(|p| p.files.contains(file)) {
+            // Skip if overridden by the matched project (files or ignored).
+            if project.is_some_and(|p| p.files.contains(file) || p.ignored.contains(file)) {
                 continue;
             }
             let linked = state.linked.iter().any(|e| {
@@ -65,7 +65,7 @@ pub fn run() -> anyhow::Result<()> {
             }
         }
         for file in &config.all.ignored {
-            if project.is_some_and(|p| p.ignored.contains(file)) {
+            if project.is_some_and(|p| p.ignored.contains(file) || p.files.contains(file)) {
                 continue;
             }
             let ignored = state.linked.iter().any(|e| {

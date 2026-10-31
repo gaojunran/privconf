@@ -44,12 +44,13 @@ Inside the store:
 - `find_project_for_dir(config, dir)` iterates `config.project` to locate the first entry matching the current directory by remote or path.
 - `derive_project_name(git_root)` extracts the project name from the git remote URL (last path segment, stripping `.git`).
 
-**Git helpers** — `config.rs` contains a suite of git wrappers used across the crate: `git_root`, `git_common_dir`, `git_is_tracked`, `git_add_to_exclude`, `git_remove_from_exclude`, `git_set_skip_worktree`, `git_unset_skip_worktree`, `rel_to_git_root`.
+**Git helpers** — `config.rs` contains a suite of git wrappers used across the crate: `git_root`, `git_common_dir`, `git_is_tracked`, `git_hide_path` (untracked → `info/exclude`, tracked → `skip-worktree` per index entry, directories get both), `git_add_to_exclude`, `git_remove_from_exclude`, `git_set_skip_worktree`, `git_unset_skip_worktree`, `rel_to_git_root`. Pathspec arguments are wrapped by `literal_path` and exclude patterns by `exclude_pattern` (anchored + escaped).
 
 **Link/unlink/ignore operations** —
-- `link_file` creates a Unix symlink from the store into the working directory, optionally backing up the original, and updates git exclude/skip-worktree state.
-- `unlink_file` removes the symlink and restores from `.privconf.bak` or git checkout.
-- `ignore_file` and `unignore_file` manipulate git state without creating symlinks, recording entries in `State` with `ignored: true`.
+- `link_file` creates a Unix symlink from the store into the working directory, optionally backing up the original, and updates git exclude/skip-worktree state. A file already linked at the target is hidden again on every run. It returns `LinkOutcome::{Linked, Unchanged, Skipped}` so callers can report real work.
+- `unlink_file` removes the symlink and restores from `.privconf.bak` or git checkout, then clears both the `skip-worktree` bit and the exclude entry.
+- `ignore_file` hides the target without creating symlinks (dropping an existing symlink first) and records entries in `State` with `ignored: true`; `unignore_file` reverses it.
+- `State.linked` entries are keyed by `(project, file, target)`; `LinkedEntry.target` goes through `path_serde`, a percent-escaping TOML codec so non-UTF-8 paths round-trip.
 
 ### Style Helpers (style.rs)
 

@@ -73,7 +73,7 @@ cargo install --git https://github.com/gaojunran/privconf
 | `link [-s] [-q]` | Rebuild symlinks for current project. `--sync` / `-s` pulls store first. `--quiet` / `-q` suppresses output. |
 | `unlink` | Remove all symlinks and restore original files |
 | `status` | Show link status for current directory |
-| `sync [-m <msg>] [--dry-run]` | Pull, commit, and push the store repo. `--message` / `-m` sets commit message (default: "sync"). `--dry-run` previews changes without committing. |
+| `sync [-m <msg>] [--dry-run]` | Pull, commit, and push the store repo. Requires the store to be its own git repository (`init --no-git` stores are synced by their containing repo). `--message` / `-m` sets commit message (default: "sync"). `--dry-run` previews changes without committing. |
 | `list` | List all projects in the store |
 | `hook <bash\|zsh\|fish>` | Print shell hook script |
 
@@ -84,7 +84,7 @@ When `privconf link` or `privconf status` needs to find which project belongs to
 1. **git remote** (priority) — if the repo's `origin` URL contains the project's `match_remote`
 2. **path glob** — if the current directory matches the project's `match_path` pattern
 
-Projects are auto-created by `privconf add` with `match_remote` set from the git remote URL. You can also add `match_path` manually in `config.toml` for projects without remotes.
+Projects are auto-created by `privconf add` / `privconf ignore` with `match_remote` set from the git remote URL and `match_path` set to the repository root, so repos without a remote still match — the root entry also covers its subdirectories. You can override `match_path` in `config.toml` with a glob for other layouts.
 
 ## Configuration
 
@@ -170,6 +170,8 @@ cd "$HOME/.local/share/chezmoi" && git add -A && git commit -m "add privconf" &&
 - **`add`** — copies the file to the store, creates a symlink, and hides it from git. The file is synced across devices via the store repo.
 - **`ignore`** — does NOT copy or symlink. Just hides the file from git (`.git/info/exclude` or `skip-worktree`). Use for files that are machine-specific and don't need syncing, like `debug.log` or local scratch files.
 
+A file tracked in both lists is reconciled automatically: `ignore` drops it from `files` and removes the symlink (restoring the tracked content), `add` drops it from `ignored`.
+
 ## How Existing Files Are Handled
 
 **`privconf add`** — the file already exists locally (you're adding it for the first time):
@@ -190,8 +192,9 @@ cd "$HOME/.local/share/chezmoi" && git add -A && git commit -m "add privconf" &&
 
 ## How Files Are Hidden from Git
 
-- **Untracked files** (not in git): added to `.git/info/exclude`
+- **Untracked files** (not in git): added to `.git/info/exclude` as an anchored, escaped pattern (`/debug.log`, `/\#hash.txt`), so a root-level name does not also match `sub/debug.log` and glob characters are taken literally
 - **Tracked files** (committed to git): `git update-index --skip-worktree`
+- **Directories** (e.g. `ignore .cortexkit/`): tracked entries are expanded and each marked `skip-worktree`, and the directory is added to `.git/info/exclude` so untracked files inside stay hidden too
 - **Backup files** (`*.privconf.bak`): also added to `.git/info/exclude`
 
 ## Git Worktree Support
@@ -212,6 +215,33 @@ What works and what doesn't under jj:
 For tracked files under jj, there is no way for privconf to make the symlink replacement invisible. The jj-native approach is to keep local overrides in a separate private commit (merged into your working branch) and use [`git.private-commits`](https://docs.jj-vcs.dev/latest/config/#gitprivate-commits) to prevent pushing it. See the [jj FAQ](https://docs.jj-vcs.dev/latest/FAQ/#how-can-i-avoid-committing-my-local-only-changes-to-tracked-files) for details.
 
 ## Changelog
+
+### v0.17.0
+
+**`ignore` / `add` / `link`**
+
+- `ignore`/`add`/`link` no longer fail with `git update-index --skip-worktree failed` when the target is a **directory** (e.g. `privconf ignore -a .cortexkit/`). `git update-index` only accepts index entries, so directory paths are expanded to every tracked entry inside them, and reversed the same way on `remove`/`unlink`. Directories now also get an exclude rule, so files added inside them stay hidden.
+- `info/exclude` patterns are anchored (`/debug.log`) and escaped, so root-level names no longer hide same-named files in subdirectories, and names like `#hash.txt`, `!bang.txt`, `[x].txt` or `star*x.txt` are matched literally.
+- `add` and `ignore` now reconcile with each other. Ignoring a linked file removes its symlink and drops it from the project's `files`; adding an ignored file drops it from `ignored`. Previously the file ended up in both lists, and `remove` left a dangling symlink.
+- `state.toml` entries are keyed by `(project, file, target)`, so the same relative file ignored in two directories no longer overwrites the other entry (which made `unlink` miss it and left `skip-worktree` bits behind).
+- `ignore` saves `config.toml` only after the git side effects succeed, so a failed run no longer records the file as ignored without applying the `skip-worktree` bit.
+- `ignore .` (repository root) is rejected instead of writing an empty line into `.git/info/exclude`.
+- Summaries report what actually happened: no-op entries count as `already ignored` / `unchanged` instead of `added` / `skipped`, and `remove` no longer prints `removed <file>` for files it did not touch.
+
+**Paths**
+
+- Non-UTF-8 paths survive end to end. Exclude patterns and `git ls-files`/`update-index` arguments are handled as raw bytes, `git rev-parse` output is no longer lossily decoded, and `state.toml` percent-escapes the bytes TOML strings cannot hold.
+
+**Project matching**
+
+- Projects created with `-p` (no git remote) now record `match_path` as the repository root, so `link` and `status` can find them afterwards, subdirectories included.
+- A path listed in `[all]` no longer overrides an explicit project-level entry — the project wins in both directions for `link` and `status`.
+
+**Other commands**
+
+- `sync` refuses to run when the store was created with `init --no-git`, instead of staging, pulling and pushing the repository that contains it.
+- `init <remote>` now sets `user.name`/`user.email` in the cloned store like a fresh init does, so `sync` works on machines without a global git identity.
+- `hook zsh` is idempotent — evaluating it twice no longer registers the chpwd hook twice.
 
 ### v0.16.0
 

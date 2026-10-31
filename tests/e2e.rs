@@ -1030,6 +1030,356 @@ fn test_ignore_tracked_file_skip_worktree() {
 }
 
 #[test]
+fn test_ignore_tracked_directory_sets_skip_worktree_per_entry() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join(".cortexkit/rules")).unwrap();
+    fs::write(repo.join(".cortexkit/index.json"), "{}").unwrap();
+    fs::write(repo.join(".cortexkit/rules/a.md"), "rule").unwrap();
+    env.git(&["add", "-A"], &repo).assert_success();
+    env.git(&["commit", "-m", "add cortexkit"], &repo).assert_success();
+
+    env.privconf(&["ignore", ".cortexkit/"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let ls_files = env.git(&["ls-files", "-v", ".cortexkit"], &repo).assert_success();
+    let lines: Vec<String> = String::from_utf8_lossy(&ls_files.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(lines.len(), 2, "expected both entries: {lines:?}");
+    assert!(lines.iter().all(|line| line.starts_with('S')), "not all skip-worktree: {lines:?}");
+
+    fs::write(repo.join(".cortexkit/rules/a.md"), "changed").unwrap();
+    let git_status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert!(String::from_utf8_lossy(&git_status.stdout).trim().is_empty());
+
+    env.privconf(&["remove", ".cortexkit/"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let ls_files = env.git(&["ls-files", "-v", ".cortexkit"], &repo).assert_success();
+    assert!(
+        !String::from_utf8_lossy(&ls_files.stdout).lines().any(|line| line.starts_with('S')),
+        "skip-worktree bits survived unignore"
+    );
+}
+
+#[test]
+fn test_ignore_git_failure_does_not_save_config() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    env.git(&["checkout", "-b", "side"], &repo).assert_success();
+    fs::write(repo.join("conflict.txt"), "side").unwrap();
+    env.git(&["add", "conflict.txt"], &repo).assert_success();
+    env.git(&["commit", "-m", "side"], &repo).assert_success();
+    env.git(&["checkout", "-"], &repo).assert_success();
+    fs::write(repo.join("conflict.txt"), "main").unwrap();
+    env.git(&["add", "conflict.txt"], &repo).assert_success();
+    env.git(&["commit", "-m", "main"], &repo).assert_success();
+    env.git(&["merge", "side"], &repo).assert_failure();
+
+    let output = env
+        .privconf(&["ignore", "conflict.txt"])
+        .current_dir(&repo)
+        .assert_failure();
+    assert!(String::from_utf8_lossy(&output.stderr).contains("update-index"));
+
+    let config = fs::read_to_string(env.store_dir().join("config.toml")).unwrap();
+    assert!(!config.contains("conflict.txt"), "config saved despite git failure: {config}");
+}
+
+#[test]
+fn test_ignore_repository_root_fails() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("a.txt"), "a").unwrap();
+    env.git(&["add", "-A"], &repo).assert_success();
+    env.git(&["commit", "-m", "add a"], &repo).assert_success();
+
+    let output = env
+        .privconf(&["ignore", "."])
+        .current_dir(&repo)
+        .assert_failure();
+    assert!(String::from_utf8_lossy(&output.stderr).contains("repository root"));
+}
+
+#[test]
+fn test_ignore_escapes_and_anchors_exclude_patterns() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("#hash.txt"), "x").unwrap();
+    fs::write(repo.join("debug.log"), "x").unwrap();
+    fs::create_dir_all(repo.join("sub")).unwrap();
+    fs::write(repo.join("sub/debug.log"), "x").unwrap();
+
+    env.privconf(&["ignore", "#hash.txt", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(exclude.lines().any(|line| line == "/\\#hash.txt"), "{exclude}");
+    assert!(exclude.lines().any(|line| line == "/debug.log"), "{exclude}");
+
+    // `#hash.txt` is matched literally, and `/debug.log` must not hide `sub/debug.log`
+    let status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert_eq!(String::from_utf8_lossy(&status.stdout).trim(), "?? sub/");
+
+    env.privconf(&["remove", "#hash.txt", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(!exclude.contains("#hash.txt"), "{exclude}");
+    assert!(!exclude.contains("debug.log"), "{exclude}");
+}
+
+#[test]
+fn test_ignore_linked_file_unlinks_it() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("cfg.toml"), "v1").unwrap();
+    env.git(&["add", "-A"], &repo).assert_success();
+    env.git(&["commit", "-m", "add cfg"], &repo).assert_success();
+
+    env.privconf(&["add", "cfg.toml"])
+        .current_dir(&repo)
+        .assert_success();
+    assert!(repo.join("cfg.toml").is_symlink());
+
+    env.privconf(&["ignore", "cfg.toml"])
+        .current_dir(&repo)
+        .assert_success();
+    assert!(!repo.join("cfg.toml").is_symlink(), "symlink survived ignore");
+    assert_eq!(fs::read_to_string(repo.join("cfg.toml")).unwrap(), "v1");
+
+    let config: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("config.toml")).unwrap()).unwrap();
+    let project = &config.get("project").unwrap().as_array().unwrap()[0];
+    assert!(project.get("files").unwrap().as_array().unwrap().is_empty());
+    assert_eq!(project.get("ignored").unwrap().as_array().unwrap().len(), 1);
+
+    let status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert!(String::from_utf8_lossy(&status.stdout).trim().is_empty());
+
+    env.privconf(&["remove", "cfg.toml"])
+        .current_dir(&repo)
+        .assert_success();
+    assert!(!repo.join("cfg.toml").is_symlink(), "dangling symlink after remove");
+    assert_eq!(fs::read_to_string(repo.join("cfg.toml")).unwrap(), "v1");
+    let status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert!(String::from_utf8_lossy(&status.stdout).trim().is_empty());
+}
+
+#[test]
+fn test_ignore_same_file_in_two_directories() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("a")).unwrap();
+    fs::create_dir_all(repo.join("b")).unwrap();
+    fs::write(repo.join("a/x.log"), "a").unwrap();
+    fs::write(repo.join("b/x.log"), "b").unwrap();
+    env.git(&["add", "-A"], &repo).assert_success();
+    env.git(&["commit", "-m", "add logs"], &repo).assert_success();
+
+    for dir in ["a", "b"] {
+        env.privconf(&["ignore", "x.log"])
+            .current_dir(repo.join(dir))
+            .assert_success();
+    }
+
+    let state: toml::Value = toml::from_str(&fs::read_to_string(env.store_dir().join("state.toml")).unwrap()).unwrap();
+    assert_eq!(state.get("linked").unwrap().as_array().unwrap().len(), 2);
+
+    env.privconf(&["unlink"])
+        .current_dir(repo.join("a"))
+        .assert_success();
+
+    let ls_files = env.git(&["ls-files", "-v"], &repo).assert_success();
+    let lines: Vec<String> = String::from_utf8_lossy(&ls_files.stdout).lines().map(str::to_string).collect();
+    assert!(lines.iter().any(|line| line == "H a/x.log"), "{lines:?}");
+    assert!(lines.iter().any(|line| line == "S b/x.log"), "{lines:?}");
+}
+
+#[test]
+fn test_ignore_directory_with_mixed_tracking() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::create_dir_all(repo.join("conf")).unwrap();
+    fs::write(repo.join("conf/tracked.txt"), "tracked").unwrap();
+    env.git(&["add", "-A"], &repo).assert_success();
+    env.git(&["commit", "-m", "add conf"], &repo).assert_success();
+    fs::write(repo.join("conf/untracked.txt"), "untracked").unwrap();
+
+    env.privconf(&["ignore", "conf/"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(exclude.lines().any(|line| line == "/conf"), "{exclude}");
+    let ls_files = env.git(&["ls-files", "-v", "conf"], &repo).assert_success();
+    assert!(String::from_utf8_lossy(&ls_files.stdout).starts_with('S'));
+    let status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert!(String::from_utf8_lossy(&status.stdout).trim().is_empty());
+
+    env.privconf(&["remove", "conf/"])
+        .current_dir(&repo)
+        .assert_success();
+    let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+    assert!(!exclude.lines().any(|line| line == "/conf"), "{exclude}");
+    let status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert_eq!(String::from_utf8_lossy(&status.stdout).trim(), "?? conf/untracked.txt");
+}
+
+#[test]
+fn test_ignore_reports_already_ignored() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("debug.log"), "x").unwrap();
+
+    env.privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+    let output = env
+        .privconf(&["ignore", "debug.log"])
+        .current_dir(&repo)
+        .assert_success();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("already ignored"), "{stderr}");
+    assert!(!stderr.contains("added"), "{stderr}");
+}
+
+#[test]
+fn test_link_reports_unchanged() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("a.local"), "x").unwrap();
+    env.privconf(&["add", "a.local"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let output = env.privconf(&["link"]).current_dir(&repo).assert_success();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unchanged"), "{stderr}");
+    assert!(!stderr.contains("skipped"), "{stderr}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_ignore_non_utf8_path() {
+    use std::os::unix::ffi::OsStringExt;
+
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    let weird_dir = repo.join(std::ffi::OsString::from_vec(b"dir\xFF".to_vec()));
+    fs::create_dir_all(&weird_dir).unwrap();
+    fs::write(weird_dir.join("tracked.log"), "tracked").unwrap();
+    fs::write(weird_dir.join("loose.log"), "loose").unwrap();
+    env.git(&["add", "-A"], &repo).assert_success();
+    env.git(&["commit", "-m", "add weird dir"], &repo).assert_success();
+
+    for file in ["tracked.log", "loose.log"] {
+        env.privconf(&["ignore", file])
+            .current_dir(&weird_dir)
+            .assert_success();
+    }
+
+    // The exclude pattern must keep the raw byte, not a U+FFFD replacement.
+    let exclude = fs::read(repo.join(".git/info/exclude")).unwrap();
+    assert!(
+        exclude.windows(4).any(|window| window == b"dir\xFF"),
+        "exclude lost the raw bytes: {}",
+        String::from_utf8_lossy(&exclude)
+    );
+
+    // Tracked entry got skip-worktree, untracked one got excluded.
+    let status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert!(status.stdout.is_empty(), "{} status", String::from_utf8_lossy(&status.stdout));
+
+    // state.toml must round-trip the non-UTF-8 target.
+    let state = fs::read(env.store_dir().join("state.toml")).unwrap();
+    assert!(state.windows(4).any(|window| window == b"%FF"), "{}", String::from_utf8_lossy(&state));
+
+    env.privconf(&["remove", "tracked.log"])
+        .current_dir(&weird_dir)
+        .assert_success();
+    env.privconf(&["remove", "loose.log"])
+        .current_dir(&weird_dir)
+        .assert_success();
+}
+
+#[test]
+fn test_sync_requires_own_git_repo() {
+    let env = TestEnv::new();
+    env.privconf(&["init", "--no-git"]).assert_success();
+
+    let output = env.privconf(&["sync"]).assert_failure();
+    assert!(String::from_utf8_lossy(&output.stderr).contains("not a git repository"));
+}
+
+#[test]
+fn test_project_without_remote_links_by_path() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", None);
+    fs::write(repo.join("a.local"), "x").unwrap();
+    env.privconf(&["add", "-p", "myproj", "a.local"])
+        .current_dir(&repo)
+        .assert_success();
+
+    env.privconf(&["unlink"]).current_dir(&repo).assert_success();
+    env.privconf(&["link"]).current_dir(&repo).assert_success();
+    assert!(repo.join("a.local").is_symlink());
+
+    fs::create_dir_all(repo.join("sub")).unwrap();
+    env.privconf(&["link"])
+        .current_dir(repo.join("sub"))
+        .assert_success();
+    assert!(repo.join("sub/a.local").is_symlink());
+}
+
+#[test]
+fn test_all_ignored_does_not_override_project_file() {
+    let env = TestEnv::new();
+    env.privconf(&["init"]).assert_success();
+
+    let repo = env.create_git_repo("myproj", Some("git@github.com:myco/myproj.git"));
+    fs::write(repo.join("a.local"), "x").unwrap();
+    env.privconf(&["add", "a.local"])
+        .current_dir(&repo)
+        .assert_success();
+
+    let config_path = env.store_dir().join("config.toml");
+    let mut config: toml::Value = toml::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    let all = config.get_mut("all").unwrap().as_table_mut().unwrap();
+    all.insert("ignored".into(), toml::Value::Array(vec![toml::Value::String("a.local".into())]));
+    fs::write(&config_path, toml::to_string_pretty(&config).unwrap()).unwrap();
+
+    env.privconf(&["link"]).current_dir(&repo).assert_success();
+    assert!(repo.join("a.local").is_symlink(), "project file was overridden by [all].ignored");
+}
+
+#[test]
 fn test_ignore_saves_to_config() {
     let env = TestEnv::new();
     env.privconf(&["init"]).assert_success();

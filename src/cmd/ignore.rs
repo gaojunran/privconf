@@ -29,19 +29,31 @@ pub fn run(all: bool, project_name: Option<String>, files: Vec<String>) -> anyho
     let mut config = crate::config::load_config()?;
 
     if all {
+        let added = files.iter().filter(|f| !config.all.ignored.contains(f)).count();
         for file in &files {
+            config.all.files.retain(|f| f != file);
             if !config.all.ignored.contains(file) {
                 config.all.ignored.push(file.clone());
             }
         }
-        eprintln!("{} {} {}", style::check(), style::green("added"), style::dim(&format!("{} file(s) to all ignored", files.len())));
+        if added > 0 {
+            eprintln!("{} {} {}", style::check(), style::green("added"), style::dim(&format!("{added} file(s) to all ignored")));
+        } else {
+            eprintln!("{} {}", style::check(), style::dim(&format!("{} file(s) already ignored in all", files.len())));
+        }
     } else if let Some(existing) = config.project.iter_mut().find(|p| p.name == name) {
+        let added = files.iter().filter(|f| !existing.ignored.contains(f)).count();
         for file in &files {
+            existing.files.retain(|f| f != file);
             if !existing.ignored.contains(file) {
                 existing.ignored.push(file.clone());
             }
         }
-        eprintln!("{} {} {} {}", style::check(), style::green("added"), style::dim(&format!("{} file(s) to ignored list of", files.len())), style::bold(&name));
+        if added > 0 {
+            eprintln!("{} {} {} {}", style::check(), style::green("added"), style::dim(&format!("{added} file(s) to ignored list of")), style::bold(&name));
+        } else {
+            eprintln!("{} {} {}", style::check(), style::dim(&format!("{} file(s) already ignored in", files.len())), style::bold(&name));
+        }
     } else {
         let project_dir = crate::config::project_dir(&name);
         std::fs::create_dir_all(&project_dir)?;
@@ -53,20 +65,19 @@ pub fn run(all: bool, project_name: Option<String>, files: Vec<String>) -> anyho
         config.project.push(crate::config::ProjectEntry {
             name: name.clone(),
             match_remote,
-            match_path: None,
+            match_path: git_root.as_ref().map(|root| root.display().to_string()),
             files: vec![],
             ignored: files.clone(),
         });
         eprintln!("{} {} {}", style::check(), style::green("created"), style::bold(&format!("{name} (with ignored files)")));
     }
 
-    crate::config::save_config(&config)?;
-
     let mut state = crate::config::load_state()?;
     for file in &files {
         crate::config::ignore_file(&name, file, &cwd, git_root.as_deref(), &mut state)?;
     }
     crate::config::save_state(&state)?;
+    crate::config::save_config(&config)?;
 
     Ok(())
 }

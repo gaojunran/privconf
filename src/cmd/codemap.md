@@ -39,7 +39,7 @@ The parameter list varies per command because usage-rs arguments are passed dire
 4. **Execution.** The command loads `Config` and/or `State`, performs filesystem operations (copy, symlink, git shell-outs), and writes results back. For example:
    - `add` copies files into the store, updates `Config.project[].files`, then calls `config::link_file` to create symlinks and update `State.linked`.
    - `link` calls `config::find_project_for_dir` to locate the matching `ProjectEntry`, then iterates over its files calling `config::link_file` and over its ignored files calling `config::ignore_file`.
-   - `sync` shells out to `git pull --rebase origin main`, `git add -A`, `git commit`, and `git push origin main` inside the store directory.
+   - `sync` requires the store to be its own git repository (a store created with `init --no-git` lives inside another repo and is skipped with an error), then shells out to `git pull --rebase origin main`, `git add -A`, `git commit`, and `git push origin main` inside the store directory.
    - `remove` looks up `State.linked` entries, calls `config::unlink_file` or `config::unignore_file`, deletes store copies, and prunes empty projects from `Config`.
 5. **Return.** Each `run` returns `anyhow::Result<()>`; errors propagate up to `main`, which prints them and exits non-zero.
 
@@ -61,7 +61,7 @@ The parameter list varies per command because usage-rs arguments are passed dire
 | `link.rs` | Symlink all files and apply ignore rules for the project matching the current directory; optionally sync first. |
 | `unlink.rs` | Remove symlinks and ignore rules for all entries in `State.linked` that belong to the current directory. |
 | `status.rs` | Display which project matches the current directory and the link/ignore state of each configured file. |
-| `sync.rs` | Pull, commit, and push the store directory via git; supports `--dry-run`. |
+| `sync.rs` | Pull, commit, and push the store directory via git; refuses stores that are not their own repo (`--no-git`); supports `--dry-run`. |
 | `list.rs` | Print all projects and their file/ignore counts. |
 | `hook.rs` | Print a shell hook script (bash/zsh/fish) that runs `privconf link --quiet` on directory change. |
 | `ignore.rs` | Register files as ignored for a project; updates `Config` and applies git exclude/skip-worktree without creating symlinks. |

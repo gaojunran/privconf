@@ -40,6 +40,7 @@ pub fn run(all: bool, project_name: Option<String>, files: Vec<String>) -> anyho
 
     if all {
         for file in &files {
+            config.all.ignored.retain(|f| f != file);
             if !config.all.files.contains(file) {
                 config.all.files.push(file.clone());
             }
@@ -47,6 +48,7 @@ pub fn run(all: bool, project_name: Option<String>, files: Vec<String>) -> anyho
         eprintln!("{} {} {}", style::check(), style::green("added"), style::dim(&format!("{} file(s) to all", files.len())));
     } else if let Some(existing) = config.project.iter_mut().find(|p| p.name == name) {
         for file in &files {
+            existing.ignored.retain(|f| f != file);
             if !existing.files.contains(file) {
                 existing.files.push(file.clone());
             }
@@ -66,7 +68,7 @@ pub fn run(all: bool, project_name: Option<String>, files: Vec<String>) -> anyho
         config.project.push(crate::config::ProjectEntry {
             name: name.clone(),
             match_remote,
-            match_path: None,
+            match_path: git_root.as_ref().map(|root| root.display().to_string()),
             files: files.clone(),
             ignored: vec![],
         });
@@ -99,7 +101,10 @@ pub fn run(all: bool, project_name: Option<String>, files: Vec<String>) -> anyho
     let mut state = crate::config::load_state()?;
     let mut linked_count = 0usize;
     for file in &files {
-        if crate::config::link_file(&name, file, &cwd, git_root.as_deref(), &mut state, false, false)? {
+        if matches!(
+            crate::config::link_file(&name, file, &cwd, git_root.as_deref(), &mut state, false, false)?,
+            crate::config::LinkOutcome::Linked
+        ) {
             linked_count += 1;
         }
     }

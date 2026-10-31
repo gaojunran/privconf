@@ -5,6 +5,11 @@ pub fn run(message: Option<&str>, dry_run: bool) -> anyhow::Result<()> {
     crate::config::ensure_initialized()?;
 
     let store = crate::config::store_dir();
+    ensure!(
+        store.join(".git").exists(),
+        "{} is not a git repository; stores created with `init --no-git` are synced by their containing repo",
+        store.display()
+    );
     let commit_message = message.unwrap_or("sync");
 
     let has_remote = std::process::Command::new("git")

@@ -31,13 +31,15 @@ pub fn run(remote: Option<&str>, no_git: bool) -> anyhow::Result<()> {
         }
 
         if !store.join(crate::config::CONFIG_FILE_NAME).exists() {
-        let config = crate::config::Config::default();
+            let config = crate::config::Config::default();
             crate::config::save_config(&config)?;
         }
         if !store.join(crate::config::STATE_FILE_NAME).exists() {
             let state = crate::config::State::default();
             crate::config::save_state(&state)?;
         }
+
+        set_git_identity(&store)?;
 
         println!("{} {}", style::check(), style::green(&format!("initialized privconf store from {url}")));
     } else {
@@ -62,17 +64,7 @@ pub fn run(remote: Option<&str>, no_git: bool) -> anyhow::Result<()> {
             .status()?;
         ensure!(status.success(), "git init failed");
 
-        let status = std::process::Command::new("git")
-            .args(["config", "user.name", "privconf"])
-            .current_dir(&store)
-            .status()?;
-        ensure!(status.success(), "git config user.name failed");
-
-        let status = std::process::Command::new("git")
-            .args(["config", "user.email", "privconf@localhost"])
-            .current_dir(&store)
-            .status()?;
-        ensure!(status.success(), "git config user.email failed");
+        set_git_identity(&store)?;
 
         let status = std::process::Command::new("git")
             .args(["add", "-A"])
@@ -88,6 +80,18 @@ pub fn run(remote: Option<&str>, no_git: bool) -> anyhow::Result<()> {
 
         println!("{} {}", style::check(), style::green(&format!("initialized privconf store at {}", store.display())));
         println!("  {} {}", style::dim("add a remote with:"), style::dim(&format!("cd {} && git remote add origin <url>", store.display())));
+    }
+    Ok(())
+}
+
+fn set_git_identity(store: &std::path::Path) -> anyhow::Result<()> {
+    // Commits in the store must work on machines without a global git identity.
+    for (key, value) in [("user.name", "privconf"), ("user.email", "privconf@localhost")] {
+        let status = std::process::Command::new("git")
+            .args(["config", key, value])
+            .current_dir(store)
+            .status()?;
+        ensure!(status.success(), "git config {key} failed");
     }
     Ok(())
 }

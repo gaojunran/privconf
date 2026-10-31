@@ -32,7 +32,9 @@ __privconf_chpwd_hook() {
     export __PRIVCONF_LAST_DIR="$PWD"
     privconf link --quiet 2>/dev/null || true
 }
-chpwd_functions=(__privconf_chpwd_hook "${chpwd_functions[@]}")
+if (( ! ${chpwd_functions[(Ie)__privconf_chpwd_hook]} )); then
+    chpwd_functions=(__privconf_chpwd_hook "${chpwd_functions[@]}")
+fi
 "#;
 
 const FISH_HOOK: &str = r#"
