@@ -1294,7 +1294,13 @@ fn test_ignore_non_utf8_path() {
     fs::create_dir_all(&weird_dir).unwrap();
     fs::write(weird_dir.join("tracked.log"), "tracked").unwrap();
     fs::write(weird_dir.join("loose.log"), "loose").unwrap();
-    env.git(&["add", "-A"], &repo).assert_success();
+    // Stage only the tracked one (its name is ASCII, so a relative `git add` works).
+    let added = std::process::Command::new("git")
+        .args(["add", "tracked.log"])
+        .current_dir(&weird_dir)
+        .status()
+        .unwrap();
+    assert!(added.success());
     env.git(&["commit", "-m", "add weird dir"], &repo).assert_success();
 
     for file in ["tracked.log", "loose.log"] {
@@ -1319,12 +1325,21 @@ fn test_ignore_non_utf8_path() {
     let state = fs::read(env.store_dir().join("state.toml")).unwrap();
     assert!(state.windows(4).any(|window| window == b"%FF"), "{}", String::from_utf8_lossy(&state));
 
-    env.privconf(&["remove", "tracked.log"])
-        .current_dir(&weird_dir)
-        .assert_success();
-    env.privconf(&["remove", "loose.log"])
-        .current_dir(&weird_dir)
-        .assert_success();
+    for file in ["tracked.log", "loose.log"] {
+        env.privconf(&["remove", file])
+            .current_dir(&weird_dir)
+            .assert_success();
+    }
+
+    // Both paths are visible to git again: the tracked one is clean, the loose one is back to untracked.
+    let status = env.git(&["status", "--porcelain"], &repo).assert_success();
+    assert!(
+        status.stdout.windows(9).any(|window| window == b"loose.log"),
+        "{} status",
+        String::from_utf8_lossy(&status.stdout)
+    );
+    let ls_files = env.git(&["ls-files", "-v"], &repo).assert_success();
+    assert!(!ls_files.stdout.starts_with(b"S "), "skip-worktree bit left behind");
 }
 
 #[test]
