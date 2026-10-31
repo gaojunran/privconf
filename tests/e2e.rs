@@ -1323,7 +1323,7 @@ fn test_ignore_non_utf8_path() {
 
     // state.toml must round-trip the non-UTF-8 target.
     let state = fs::read(env.store_dir().join("state.toml")).unwrap();
-    assert!(state.windows(4).any(|window| window == b"%FF"), "{}", String::from_utf8_lossy(&state));
+    assert!(state.windows(3).any(|window| window == b"%FF"), "{}", String::from_utf8_lossy(&state));
 
     for file in ["tracked.log", "loose.log"] {
         env.privconf(&["remove", file])
